@@ -1,0 +1,113 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Business {
+  id      String @id @default(cuid())
+  name    String
+  address String
+  phone   String
+  email   String @unique
+
+  users        User[]
+  clients      BusinessClient[]
+  appointments Appointment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id           String        @id @default(cuid())
+  name         String
+  email        String        @unique
+  password     String
+  role         UserRole      @default(EMPLOYEE)
+  appointments Appointment[]
+
+  businesses Business @relation(fields: [businessId], references: [id])
+  businessId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BusinessClient {
+  id         String @id @default(cuid())
+  businessId String
+  clientId   String
+
+  business Business @relation(fields: [businessId], references: [id])
+  client   Client   @relation(fields: [clientId], references: [id])
+
+  @@unique([businessId, clientId]) // un mismo cliente no se repite en el mismo negocio
+}
+
+model Client {
+  id      String  @id @default(cuid())
+  name    String
+  email   String?
+  phone   String?
+  address String
+  notes   Note[]
+
+  businesses   BusinessClient[]
+  appointments Appointment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Appointment {
+  id     String            @id @default(cuid())
+  date   DateTime
+  status AppointmentStatus @default(SCHEDULED)
+
+  client   Client @relation(fields: [clientId], references: [id])
+  clientId String
+
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+
+  business   Business @relation(fields: [businessId], references: [id])
+  businessId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+}
+
+// ·······················
+// Enums
+// ·······················
+
+enum UserRole {
+  ADMIN
+  EMPLOYEE
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELED
+}
