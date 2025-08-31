@@ -6,7 +6,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../generated/prisma"
 }
 
 datasource db {
@@ -15,11 +14,12 @@ datasource db {
 }
 
 model Business {
-  id      String @id @default(cuid())
-  name    String
-  address String
-  phone   String
-  email   String @unique
+  id       String  @id @default(cuid())
+  name     String
+  address  String
+  phone    Int
+  email    String  @unique
+  isActive Boolean @default(true)
 
   users        User[]
   clients      BusinessClient[]
@@ -30,11 +30,14 @@ model Business {
 }
 
 model User {
-  id           String        @id @default(cuid())
-  name         String
-  email        String        @unique
-  password     String
-  role         UserRole      @default(EMPLOYEE)
+  id       String   @id @default(cuid())
+  name     String
+  phone    Int?
+  email    String   @unique
+  password String
+  role     UserRole @default(EMPLOYEE)
+  isActive Boolean  @default(true)
+
   appointments Appointment[]
 
   businesses Business @relation(fields: [businessId], references: [id])
@@ -45,12 +48,19 @@ model User {
 }
 
 model BusinessClient {
-  id         String @id @default(cuid())
-  businessId String
-  clientId   String
+  id       String  @id @default(cuid())
+  isActive Boolean @default(true)
 
-  business Business @relation(fields: [businessId], references: [id])
-  client   Client   @relation(fields: [clientId], references: [id])
+  notes Note[]
+
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId String
+
+  client   Client @relation(fields: [clientId], references: [id])
+  clientId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([businessId, clientId]) // un mismo cliente no se repite en el mismo negocio
 }
@@ -59,9 +69,8 @@ model Client {
   id      String  @id @default(cuid())
   name    String
   email   String?
-  phone   String?
+  phone   Int
   address String
-  notes   Note[]
 
   businesses   BusinessClient[]
   appointments Appointment[]
@@ -71,30 +80,62 @@ model Client {
 }
 
 model Appointment {
-  id     String            @id @default(cuid())
-  date   DateTime
-  status AppointmentStatus @default(SCHEDULED)
+  id       String            @id @default(cuid())
+  date     DateTime
+  status   AppointmentStatus @default(SCHEDULED)
+  isActive Boolean           @default(true)
 
-  client   Client @relation(fields: [clientId], references: [id])
-  clientId String
+  business   Business @relation(fields: [businessId], references: [id])
+  businessId String
 
   user   User   @relation(fields: [userId], references: [id])
   userId String
 
-  business   Business @relation(fields: [businessId], references: [id])
-  businessId String
+  client   Client @relation(fields: [clientId], references: [id])
+  clientId String
+
+  services AppointmentService[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model Note {
-  id        String   @id @default(cuid())
-  content   String
-  createdAt DateTime @default(now())
+model Service {
+  id           String               @id @default(cuid())
+  name         String
+  durationMin  Int?
+  price        Float
+  appointments AppointmentService[]
 
-  clientId String
-  client   Client @relation(fields: [clientId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AppointmentService {
+  id String @id @default(cuid())
+
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  appointmentId String
+
+  service   Service @relation(fields: [serviceId], references: [id])
+  serviceId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([appointmentId, serviceId])
+}
+
+model Note {
+  id       String  @id @default(cuid())
+  content  String
+  isActive Boolean @default(true)
+
+  businessClientId String
+  client           BusinessClient @relation(fields: [businessClientId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ·······················
