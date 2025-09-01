@@ -1,4 +1,44 @@
+import { validationResult } from 'express-validator';
+import {PrismaClient} from '@prisma/client';
+const prisma = new PrismaClient()
 
 export async function createClient(req, res) {
-    res.send("from createClient")
+    const { name, email, phone } = req.body
+    const { businessId } = req.user
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+    try {
+        // we check if the client already exists in the business
+        const client = await prisma.client.findUnique({
+            where: { phone },
+            include: {businesses: true}
+        })
+
+        if(client){
+            // if the client exists we check if it is already associated with the business
+            if(client.businesses.find(b => b.businessId === businessId)) return res.status(409).json({ msg: "Client already exists" })
+            // if not we create the relation with the business
+            const businessClientState = await prisma.businessClient.create({
+                data: { clientId: client.id, businessId }
+            })
+            return res.status(201).json({ msg: "Client created successfully", client: businessClientState})
+        }
+        // if not we create the client and the relation with the business
+        const clientState = await prisma.client.create({
+            data: { name, email, phone }
+        })
+        const businessClientState = await prisma.businessClient.create({
+            data: { clientId: clientState.id, businessId }
+        })
+        return res.status(201).json({ msg: "Client created successfully", client: businessClientState})
+        
+    } catch (error) {
+        if (error.code === "P2002") {
+            return res.status(409).json({ msg: "Client already exists" })
+        }
+        return res.status(500).json(error)
+    }
 }

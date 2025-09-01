@@ -27,7 +27,7 @@ export async function createUser(req, res){
                 businessId
             }
         })
-        res.status(201).json({ msg: "User created successfully" })
+        return res.status(201).json({ msg: "User created successfully" })
     } catch (error) {
         if (error.code === "P2002") {
             return res.status(409).json({ msg: "User already exists" })
@@ -62,7 +62,7 @@ export async function getUser(req, res) {
                 include: {services: true}
             }}
         })
-        res.status(200).json(user)
+        return res.status(200).json(user)
     } catch (error) {
         if (error.code === "P2025") {
             return res.status(404).json({ msg: "User not found" })
@@ -103,7 +103,7 @@ export async function updateUser(req, res) {
             where: { id, isActive: true },
             data: { name, email, role, phone }
         })
-        res.status(200).json({ msg: "User updated successfully" })
+        return res.status(200).json({ msg: "User updated successfully" })
     } catch (error) {
         if (error.code === "P2025") {
             return res.status(404).json({ msg: "User not found" })
@@ -124,7 +124,7 @@ export async function deleteUser(req, res) {
             await changingBusinessState(businessId, false)
             return res.status(200).json({ msg: "User and Business deleted successfully" })
         }else{
-            res.status(200).json({ msg: "User deleted successfully" })
+            return res.status(200).json({ msg: "User deleted successfully" })
         }
     } catch (error) {
         if (error.code === "P2025") {
