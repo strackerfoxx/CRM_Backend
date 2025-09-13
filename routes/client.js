@@ -1,7 +1,7 @@
 import express from "express";
 const router = express.Router();
 import { body } from "express-validator";
-import { createClient } from "../controllers/clientController.js"
+import { createClient, getClients, getClientById, deleteClient } from "../controllers/clientController.js"
 
 import { deepClean } from "../middlewares/deepClean.js";
 import { auth } from "../middlewares/auth.js"
@@ -14,5 +14,8 @@ const clientValidation = [
 ]
 
 router.post('/create', auth, clientValidation, deepClean, createClient)
+router.get('/get-clients', auth, getClients)
+router.get('/get-client', auth, getClientById)
+router.delete('/delete-client', auth, deleteClient)
 
 export default router;
