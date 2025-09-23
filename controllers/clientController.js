@@ -143,6 +143,10 @@ export async function confirmClient(req, res) {
     }
 }
 
+export async function testingAuth(req, res) {
+    res.send("pepe")
+}
+
 export async function getClients(req, res) {
     const { businessId } = req.user
     try {
@@ -161,6 +165,7 @@ export async function getClients(req, res) {
     }
 
 }
+
 export async function getClientById(req, res) {
     const { id } = req.query
     try {
@@ -198,4 +203,3 @@ export async function deleteClient(req, res) {
         return res.status(500).json(error)
     }
 }
-
