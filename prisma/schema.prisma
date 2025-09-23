@@ -19,6 +19,7 @@ model Business {
   address  String
   phone    String
   email    String  @unique
+  plan     BusinessPlan @default(ADVANCED)
   isActive Boolean @default(true)
 
   users        User[]
@@ -67,10 +68,12 @@ model BusinessClient {
 }
 
 model Client {
-  id    String  @id @default(cuid())
-  name  String
-  email String?
-  phone String  @unique
+  id          String  @id @default(cuid())
+  name        String
+  email       String?
+  phone       String  @unique
+  token       String?
+  isConfirmed Boolean @default(false)
 
   businesses BusinessClient[]
 
@@ -140,6 +143,12 @@ model Note {
 // ·······················
 // Enums
 // ·······················
+
+enum BusinessPlan {
+  BASIC
+  INTERMEDIATE
+  ADVANCED
+}
 
 enum UserRole {
   ADMIN
