@@ -14,16 +14,17 @@ datasource db {
 }
 
 model Business {
-  id       String  @id @default(cuid())
+  id       String       @id @default(cuid())
   name     String
   address  String
   phone    String
-  email    String  @unique
+  email    String       @unique
   plan     BusinessPlan @default(ADVANCED)
-  isActive Boolean @default(true)
+  isActive Boolean      @default(true)
 
   users        User[]
   clients      BusinessClient[]
+  services     Service[]
   appointments Appointment[]
 
   createdAt DateTime @default(now())
@@ -107,7 +108,13 @@ model Service {
   name         String
   durationMin  Int?
   price        Float
+  description  String?
+  isActive     Boolean              @default(true)
+  imageUrl     String?
   appointments AppointmentService[]
+
+  business   Business @relation(fields: [businessId], references: [id])
+  businessId String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

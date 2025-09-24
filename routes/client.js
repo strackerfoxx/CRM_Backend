@@ -1,7 +1,7 @@
 import express from "express";
 const router = express.Router();
 import { body } from "express-validator";
-import { createClient, getClients, getClientById, deleteClient, createClientSelfService, confirmClient, testingAuth } from "../controllers/clientController.js"
+import { createClient, getClients, getClientById, deleteClient, createClientSelfService, confirmClient } from "../controllers/clientController.js"
 
 import { deepClean } from "../middlewares/deepClean.js";
 import { auth } from "../middlewares/auth.js"

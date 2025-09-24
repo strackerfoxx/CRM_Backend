@@ -3,11 +3,9 @@ import {PrismaClient} from '@prisma/client';
 const prisma = new PrismaClient()
 
 import jwt from "jsonwebtoken"
-import dotenv from "dotenv"
-dotenv.config({ path: '.env' });
 
 import twilio from "twilio";
-import { sendOTP, verifyOTP } from "../middlewares/OTP-handler.js"
+import { sendOTP, verifyOTP } from "../middlewares/OTPHandler.js"
 
 export async function createClient(req, res) {
     const { name, email, phone, businessId } = req.body
@@ -141,10 +139,6 @@ export async function confirmClient(req, res) {
     } catch (error) {
         return res.status(500).json(error);
     }
-}
-
-export async function testingAuth(req, res) {
-    res.send("pepe")
 }
 
 export async function getClients(req, res) {

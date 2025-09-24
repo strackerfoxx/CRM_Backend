@@ -51,11 +51,11 @@ export async function getBusiness(req, res){
                         }
                     }
                 },
-                appointments: {
+                services: {
                     where: { isActive: true },
-                    include: {
-                        services: true,
-                    }
+                },
+                appointments: {
+                    where: { isActive: true }
                 }
             }
         })
