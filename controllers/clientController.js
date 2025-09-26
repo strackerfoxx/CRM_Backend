@@ -70,7 +70,7 @@ export async function createClientSelfService(req, res) {
         if(client){
             console.log("from client exists")
             // if the client exists we check if it is already associated with the business
-            if(client.businesses.find(b => b.businessId === businessId)) return res.status(409).json({ msg: "Client already exists", client })
+            if(client.businesses.find(b => b.businessId === businessId)) return res.status(409).json({ msg: "Client already exists" })
             // if not we create the relation with the business
             const newBusinessClient = await prisma.businessClient.create({
                 data: { clientId: client.id, businessId }
@@ -92,7 +92,7 @@ export async function createClientSelfService(req, res) {
         })
 
         // now we send the OTP to the phone number
-        // sendOTP(phone)
+        sendOTP(phone)
 
         return res.status(201).json({ msg: "Client created, waiting for confirmation", client: newBusinessClient})
         
@@ -107,38 +107,7 @@ export async function createClientSelfService(req, res) {
 export async function confirmClient(req, res) {
     const { phone, code } = req.body;
 
-    try {
-        const client = await prisma.client.findUnique({ where: { phone } });
-        const businessClient = await prisma.businessClient.findFirst({ where: { clientId: client.id } });
-
-        if (!client) {
-            return res.status(404).json({ msg: "Client not found" });
-        }
-
-        // we validate the OTP sent to the phone number
-        // const verification = await verifyOTP(phone, code)
-        // if(verification.success === false) return res.status(400).json({ msg: "Invalid token" });
-
-        // update client to set isConfirmed to true
-        await prisma.client.update({
-            where: { phone },
-            data: { 
-                isConfirmed: true
-            }
-        });
-
-        const token = jwt.sign({
-            "id": businessClient.id,
-            "name": client.name,
-            "phone": phone
-        }, process.env.SECRET_KEY, {
-            expiresIn: "30d"
-        });
-
-        return res.status(200).json({ msg: "Phone confirmed successfully", token });
-    } catch (error) {
-        return res.status(500).json(error);
-    }
+    console.log(code)
 }
 
 export async function getClients(req, res) {

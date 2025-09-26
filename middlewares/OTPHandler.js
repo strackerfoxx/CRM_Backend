@@ -20,7 +20,7 @@ export async function verifyOTP(phone, code, next) {
         .services("VA5f42911d02b275e15c6a82a2d4ba966b")
         .verificationChecks
         .create({ to: `+52${phone}`, code });
-
+      console.log(verification_check)
       if (verification_check.status === "approved") {
         return { success: true};
       } else {
