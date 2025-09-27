@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 
-export const auth = async (req, res, next) => {
+export const authClient = async (req, res, next) => {
     const authHeader = req.get("Authorization");
     if(!authHeader) return res.status(403).json({msg: "There is NOT a Token"});
     

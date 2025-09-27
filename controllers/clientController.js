@@ -107,7 +107,74 @@ export async function createClientSelfService(req, res) {
 export async function confirmClient(req, res) {
     const { phone, code } = req.body;
 
-    console.log(code)
+    try {
+        const client = await prisma.client.findUnique({ where: { phone } });
+        const businessClient = await prisma.businessClient.findFirst({ where: { clientId: client.id } });
+
+        if (!client) {
+            return res.status(404).json({ msg: "Client not found" });
+        }
+
+        // we validate the OTP sent to the phone number
+        const verification = await verifyOTP(phone, code)
+        if(verification.success === false) return res.status(400).json({ msg: "Invalid token" });
+
+        // update client to set isConfirmed to true
+        await prisma.client.update({
+            where: { phone },
+            data: { 
+                isConfirmed: true
+            }
+        });
+
+        const token = jwt.sign({
+            "id": businessClient.id,
+            "name": client.name,
+            "phone": phone,
+            "businessId": businessClient.businessId
+        }, process.env.SECRET_KEY, {
+            expiresIn: "30d"
+        });
+
+        return res.status(200).json({ msg: "Phone confirmed successfully", token });
+    } catch (error) {
+        return res.status(500).json(error);
+    }
+}
+
+export async function loginClient(req, res) {
+    const { phone } = req.body
+
+    try {
+        const businessClient = await prisma.businessClient.findFirst({
+            where: {
+                client:{ phone },
+                isActive: true
+            }, include: {
+                client:{ 
+                    select:{
+                    name: true
+                }}
+            }
+        })
+
+        const token = jwt.sign({
+            "id": businessClient.id,
+            "name": businessClient.client.name,
+            "phone": phone,
+            "businessId": businessClient.businessId
+        }, process.env.SECRET_KEY, {
+            expiresIn: "30d"
+        });
+        
+        return res.status(200).json({token})
+    } catch (error) {
+        if (error.code === "P2005") {
+            return res.status(409).json({ msg: "Business doesnt exists" })
+        }
+        return res.status(500).json(error)
+    }
+
 }
 
 export async function getClients(req, res) {
@@ -132,13 +199,13 @@ export async function getClients(req, res) {
 export async function getClientById(req, res) {
     const { id } = req.query
     try {
-        const clients = await prisma.businessClient.findUnique({
+        const client = await prisma.businessClient.findUnique({
             where: {
                 id, 
                 isActive: true
             }
         })
-        return res.status(200).json({clients})
+        return res.status(200).json({client})
     } catch (error) {
         if (error.code === "P2005") {
             return res.status(409).json({ msg: "Business doesnt exists" })

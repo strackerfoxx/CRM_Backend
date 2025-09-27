@@ -52,14 +52,14 @@ export async function getServices(req, res) {
 export async function getServiceById(req, res) {
     const { businessId } = req.user
     try {
-        const services = await prisma.service.findMany({
+        const service = await prisma.service.findMany({
             where: { 
                 businessId, 
                 id: req.query.id, 
                 isActive: true 
             }
         })
-        return res.status(200).json({ services })
+        return res.status(200).json({ service })
     } catch (error) {
         if (error.code === "P2005") {
             return res.status(409).json({ msg: "Client doesnt exists" })

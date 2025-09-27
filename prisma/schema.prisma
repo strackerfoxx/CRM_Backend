@@ -84,15 +84,15 @@ model Client {
 
 model Appointment {
   id       String            @id @default(cuid())
-  date     DateTime
+  date     DateTime          @unique
   status   AppointmentStatus @default(SCHEDULED)
   isActive Boolean           @default(true)
 
   business   Business @relation(fields: [businessId], references: [id])
   businessId String
 
-  user   User   @relation(fields: [userId], references: [id])
-  userId String
+  user   User?   @relation(fields: [userId], references: [id])
+  userId String?
 
   businessClient   BusinessClient @relation(fields: [businessClientId], references: [id])
   businessClientId String

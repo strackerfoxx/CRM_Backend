@@ -25,7 +25,7 @@ export async function createBusiness(req, res){
         return res.status(201).json({message: "Business created successfully"})
     } catch (error) {
         if (error.code === "P2002") {
-            return res.status(409).json({ msg: "User already exists" })
+            return res.status(409).json({ msg: "Business already exists" })
         }
         return res.status(500).json(error)
     }
