@@ -2,16 +2,22 @@ import express from "express";
 const router = express.Router();
 import { body } from "express-validator";
 
-import { createAppointment, getAppointments } from "../controllers/appointmentController.js"
+import { createAppointment, getAppointments, getAppointmentById, updateAppointment, deleteAppointment } from "../controllers/appointmentController.js"
 
 import { deepClean } from "../middlewares/deepClean.js";
 import { auth } from "../middlewares/auth.js"
 import { authClient } from "../middlewares/authClient.js"
 import { appointmentAuth } from "../middlewares/appointmentAuth.js";
 
+const appointmentValidation = [
+    body('date').notEmpty().withMessage('The date is required'),
+    body('services').notEmpty().withMessage('The service is required')
+]
 
-
-router.post("/create", appointmentAuth, createAppointment)
+router.post("/create", appointmentValidation, appointmentAuth, createAppointment)
 router.get("/get-all", auth, getAppointments)
+router.get("/get-by-id", appointmentAuth, getAppointmentById)
+router.put("/update", body('date').notEmpty().withMessage('The date is required'), updateAppointment)
+router.delete("/delete", appointmentAuth, deleteAppointment)
 
 export default router;
