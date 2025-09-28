@@ -4,9 +4,7 @@ import { body } from "express-validator";
 
 import { createAppointment, getAppointments, getAppointmentById, updateAppointment, deleteAppointment } from "../controllers/appointmentController.js"
 
-import { deepClean } from "../middlewares/deepClean.js";
 import { auth } from "../middlewares/auth.js"
-import { authClient } from "../middlewares/authClient.js"
 import { appointmentAuth } from "../middlewares/appointmentAuth.js";
 
 const appointmentValidation = [
