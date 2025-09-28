@@ -20,7 +20,7 @@ router.post('/confirm-client', clientValidation, deepClean, confirmClient)
 router.post('/login', clientValidation, deepClean, loginClient)
 
 router.get('/get-clients', auth, getClients)
-router.get('/get-client', auth, getClientById)
+router.get('/get-client-by-id', auth, getClientById)
 
 router.delete('/delete-client', auth, deleteClient)
 

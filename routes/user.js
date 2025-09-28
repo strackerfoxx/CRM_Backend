@@ -34,7 +34,7 @@ router.post("/login",
     ],
      loginUser
 );
-router.get("/get-user", auth, getUser)
+router.get("/get-user-by-id", auth, getUser)
 router.get("/get-all-users", auth, getAllUsers)
 router.patch("/update-user", 
     deepClean,
