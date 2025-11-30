@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken"
 import dotenv from "dotenv"
 dotenv.config({ path: '.env' });
 
-const login = async (user, password, res, next) => {
+const login = async (user, password) => {
 
     // verificar password y autenticar usuario
     if(!bcrypt.compareSync(password, user.password))return res.status(401).json({msg: "The Password is Incorrect"});
@@ -17,8 +17,7 @@ const login = async (user, password, res, next) => {
     }, process.env.SECRET_KEY, {
         expiresIn: "30d"
     });
-    res.json({token})
-    return next();
+    return token
 }
 
 export default login

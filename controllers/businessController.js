@@ -46,6 +46,7 @@ export async function getBusiness(req, res){
                 clients: {
                     where: { isActive: true },
                     include: {
+                        client: true,
                         notes: {
                             where: { isActive: true }
                         }

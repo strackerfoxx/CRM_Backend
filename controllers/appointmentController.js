@@ -79,6 +79,21 @@ export async function getAppointments(req, res) {
                     include: {
                         service: true
                     }
+                },
+                businessClient: {
+                    select: {
+                        id: true,
+                        client: {
+                            select: {
+                                name: true,
+                                email: true,
+                                phone: true
+                            }
+                        }
+                    }
+                },
+                user: {
+                    select: { name: true }
                 }
             }
         })
@@ -104,6 +119,21 @@ export async function getAppointmentById(req, res) {
                     include: {
                         service: true
                     }
+                },
+                businessClient: {
+                    select: {
+                        id: true,
+                        client: {
+                            select: {
+                                name: true,
+                                email: true,
+                                phone: true
+                            }
+                        }
+                    }
+                },
+                user: {
+                    select: { name: true }
                 }
             }
         })
