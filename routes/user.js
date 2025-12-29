@@ -5,6 +5,7 @@ import { createUser, loginUser, getUser, getAllUsers, updateUser, deleteUser } f
 
 import { deepClean } from "../middlewares/deepClean.js";
 import { auth } from "../middlewares/auth.js";
+import { errorHandler } from "../middlewares/errorHandler.js"
 
 const businessValidation = [
     body('name').notEmpty().withMessage('The name is required'),
@@ -32,7 +33,8 @@ router.post("/login",
         .isEmail().withMessage('Email is not valid'),
         body('password').notEmpty().withMessage('The password is required'),
     ],
-     loginUser
+     loginUser,
+     errorHandler
 );
 router.get("/get-user-by-id", auth, getUser)
 router.get("/get-all-users", auth, getAllUsers)

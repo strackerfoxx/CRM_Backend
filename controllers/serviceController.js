@@ -5,7 +5,7 @@ const prisma = new PrismaClient()
 
 export async function createService(req, res) {
     const { businessId } = req.user
-    const { name, durationMin, price, description } = req.body
+    const { name, durationMin, price, description, users } = req.body
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -22,6 +22,19 @@ export async function createService(req, res) {
                 businessId
             }
         })
+        if(users && users.length > 0){
+            users.forEach(async userId => {
+                await prisma.userService.create({
+                    data: {
+                        userId,
+                        serviceId: service.id
+                    }
+                })
+            });
+        }else{
+            return res.status(201).json({ msg: "Users not provided" })
+        }
+
         return res.status(201).json({ msg: "Service created successfuly", service })
     } catch (error) {
         if (error.code === "P2002") {
@@ -37,7 +50,7 @@ export async function getServices(req, res) {
         const services = await prisma.service.findMany({
             where: { 
                 businessId, 
-                isActive: true 
+                isActive: true
             }
         })
         return res.status(200).json({ services })
@@ -45,7 +58,11 @@ export async function getServices(req, res) {
         if (error.code === "P2005") {
             return res.status(409).json({ msg: "Client doesnt exists" })
         }
-        return res.status(500).json(error)
+        return res.status(500).json({
+            message: error.message,
+            meta: error.meta,
+            stack: error.stack
+        })
     }
 }
 
@@ -56,7 +73,7 @@ export async function getServiceById(req, res) {
             where: { 
                 businessId, 
                 id: req.query.id, 
-                isActive: true 
+                isActive: true
             }
         })
         return res.status(200).json({ service })
@@ -104,7 +121,7 @@ export async function deleteService(req, res) {
         await prisma.service.update({
             where: {
                 id: serviceId, 
-                isActive: true 
+                isActive: true
             },
             data: {
                 isActive: false
@@ -115,6 +132,10 @@ export async function deleteService(req, res) {
         if (error.code === "P2005") {
             return res.status(409).json({ msg: "Client doesnt exists" })
         }
-        return res.status(500).json(error)
+        return res.status(500).json({
+            message: error.message,
+            meta: error.meta,
+            stack: error.stack
+        })
     }
 }

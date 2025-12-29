@@ -36,34 +36,37 @@ export async function getBusiness(req, res){
 
     try {
         const business = await prisma.business.findUnique({
+            // se toma el id del token del usuario ya que todos los usuarios llegan a la misma pantalla 
+            // de login pero queremos que en cuanto se identifiquen se redirija al business al que pertenecen
             where: {
                 id: businessId,
-                isActive: true
+                deletedAt: null
             },include: {
                 users: {
-                    where: { isActive: true }
+                    where: { deletedAt: null }
                 },
                 clients: {
-                    where: { isActive: true },
+                    where: { deletedAt: null },
                     include: {
                         client: true,
                         notes: {
-                            where: { isActive: true }
+                            where: { deletedAt: null }
                         }
                     }
                 },
                 services: {
                     where: { isActive: true },
                 },
-                appointments: {
-                    where: { isActive: true }
-                }
             }
         })
         if(!business) return res.status(404).json({msg: "Business not found"})
         return res.status(200).json(business)
     } catch (error) {
-        return res.status(500).json({ msg: error })
+            return res.status(500).json({
+            message: error.message,
+            meta: error.meta,
+            stack: error.stack
+        })
     }
 }
 
@@ -74,19 +77,22 @@ export async function updateBusiness(req, res) {
         return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, address, phone, email, id } = req.body
+    const { name, address, phone, email, id, defaultSlotInterval, businessHours, specialDays } = req.body
 
     try {
         await prisma.business.update({
             where: {
                 id,
-                isActive: true
+                deletedAt: null
             },
             data: {
                 name,
                 address,
                 phone,
-                email
+                email,
+                defaultSlotInterval,
+                businessHours,
+                specialDays
             }
         })
         return res.status(200).json({ msg: "Business updated successfully" })
@@ -99,9 +105,15 @@ export async function updateBusiness(req, res) {
 }
 
 export async function deleteBusiness(req, res) {
-    const { id } = req.body
+    const { businessId } = req.body
+    const { role } = req.user
+
+    if(role !== 'ADMIN'){
+        return res.status(403).json({ msg: "Only ADMIN users can delete the Business" })
+    }
+
     try {
-        await changingBusinessState(id, false)
+        await changingBusinessState(businessId, new Date())
         return res.status(200).json({ msg: "Business deleted successfully" })
     } catch (error) {
         if (error.code === "P2025") {
@@ -116,7 +128,7 @@ export async function reActivateBusiness(req, res) {
 
     try {
         if(role === 'ADMIN'){
-            await changingBusinessState(businessId, true)
+            await changingBusinessState(businessId, null)
             return res.status(200).json({ msg: "Business ReActivated successfully" })
         }
     } catch (error) {

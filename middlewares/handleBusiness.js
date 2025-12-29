@@ -1,50 +1,36 @@
 import {PrismaClient} from '@prisma/client';
 const prisma = new PrismaClient()
 
-export async function changingBusinessState(id, operation = false){
-const notes = await prisma.note.findMany({
-        where: {
-            client: {
-                businessId: id,
-            },
-        },
-    })
-    notes.forEach( async (n) => {
-        await prisma.note.update({
-            where: { id: n.id},
-            data: { isActive: operation }
-        })
-    })
+export async function changingBusinessState(businessId, operation = new Date()){
 
-    const appointments = await prisma.appointmentService.findMany({
+    const appointments = await prisma.appointment.findMany({
         where: { 
-            appointment: {
-                businessId: id
-            }
+            businessId
         },
     })
-    appointments.forEach( async (a) => {
-        await prisma.appointmentService.delete({
-            where: { id: a.id}
-        })
+    appointments.forEach( async (appointment) => {
+        if(appointment.status === "SCHEDULED"){
+            await prisma.appointment.update({
+                where: { id: appointment.id },
+                data: {
+                    status: "CANCELED"
+                }
+            })
+        }
     })
 
     await prisma.$transaction([
         prisma.business.update({
-            where: { id },
-            data: { isActive: operation },
+            where: { id: businessId },
+            data: { deletedAt: operation },
         }),
         prisma.user.updateMany({
-            where: { businessId: id },
-            data: { isActive: operation },
+            where: { businessId },
+            data: { deletedAt: operation }
         }),
         prisma.businessClient.updateMany({
-            where: { businessId: id },
-            data: { isActive: operation },
-        }),
-        prisma.appointment.updateMany({
-            where: { businessId: id },
-            data: { isActive: operation },
-        }),
+            where: { businessId },
+            data: { deletedAt: operation }
+        })
     ])
 }

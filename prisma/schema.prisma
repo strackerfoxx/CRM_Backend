@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,47 +7,121 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/**
+ * ============================
+ * BUSINESS
+ * ============================
+ */
+
 model Business {
-  id            String       @id @default(cuid())
-  name          String
-  address       String
-  phone         String
-  email         String       @unique
-  plan          BusinessPlan @default(ADVANCED)
-  businessHours Json         @default("{\"monday\":{\"open\":\"09:00\",\"close\":\"18:00\",\"closed\":false},\"tuesday\":{\"open\":\"09:00\",\"close\":\"18:00\",\"closed\":false},\"wednesday\":{\"open\":\"09:00\",\"close\":\"18:00\",\"closed\":false},\"thursday\":{\"open\":\"09:00\",\"close\":\"18:00\",\"closed\":false},\"friday\":{\"open\":\"09:00\",\"close\":\"18:00\",\"closed\":false},\"saturday\":{\"open\":\"10:00\",\"close\":\"14:00\",\"closed\":false},\"sunday\":{\"closed\":true}}")
-  specialDays   Json?
-  isActive      Boolean      @default(true)
+  id      String       @id @default(cuid())
+  name    String
+  address String
+  phone   String
+  email   String       @unique
+  plan    BusinessPlan @default(ADVANCED)
+
+  businessHours       Json  @default("{}")
+  specialDays         Json?
+  defaultSlotInterval Int   @default(30)
+
+  deletedAt DateTime?
 
   users        User[]
   clients      BusinessClient[]
   services     Service[]
   appointments Appointment[]
+  blockedTimes BlockedTime[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+/**
+ * ============================
+ * USER (EMPLOYEE / ADMIN)
+ * ============================
+ */
 
 model User {
-  id       String   @id @default(cuid())
+  id       String  @id @default(cuid())
   name     String
   phone    String?
-  email    String   @unique
+  email    String  @unique
   password String
-  role     UserRole @default(EMPLOYEE)
-  isActive Boolean  @default(true)
+
+  role      UserRole  @default(EMPLOYEE)
+  deletedAt DateTime?
 
   appointments Appointment[]
+  services     UserService[]
+  schedules    UserSchedule[]
+  blockedTimes BlockedTime[]
 
-  businesses Business @relation(fields: [businessId], references: [id])
+  businesses Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   businessId String
+
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  appointmentServices AppointmentService[]
+
+  @@unique([email, deletedAt])
+}
+
+/**
+ * ============================
+ * EMPLOYEE SCHEDULE (Bloques)
+ * ============================
+ */
+
+model UserSchedule {
+  id String @id @default(cuid())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  dayOfWeek WeekDay
+
+  startTime String
+  endTime   String
+
+  deletedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
+/**
+ * ============================
+ * BLOCKED TIMES (global o empleado)
+ * ============================
+ */
+
+model BlockedTime {
+  id    String   @id @default(cuid())
+  date  DateTime
+  start String
+  end   String
+
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId String
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/**
+ * ============================
+ * BUSINESS CLIENT & CLIENT
+ * ============================
+ */
+
 model BusinessClient {
-  id       String  @id @default(cuid())
-  isActive Boolean @default(true)
+  id        String    @id @default(cuid())
+  deletedAt DateTime?
 
   notes        Note[]
   appointments Appointment[]
@@ -67,7 +135,7 @@ model BusinessClient {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([businessId, clientId]) // un mismo cliente no se repite en el mismo negocio
+  @@unique([businessId, clientId])
 }
 
 model Client {
@@ -84,19 +152,29 @@ model Client {
   updatedAt DateTime @updatedAt
 }
 
-model Appointment {
-  id       String            @id @default(cuid())
-  date     DateTime          @unique
-  status   AppointmentStatus @default(SCHEDULED)
-  isActive Boolean           @default(true)
+/**
+ * ============================
+ * APPOINTMENTS
+ * ============================
+ */
 
-  business   Business @relation(fields: [businessId], references: [id])
+model Appointment {
+  id String @id @default(cuid())
+
+  date        DateTime
+  startTime   String
+  endTime     String
+  durationMin Int
+
+  status AppointmentStatus @default(SCHEDULED)
+
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   businessId String
 
-  user   User?   @relation(fields: [userId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
   userId String?
 
-  businessClient   BusinessClient @relation(fields: [businessClientId], references: [id])
+  businessClient   BusinessClient @relation(fields: [businessClientId], references: [id], onDelete: Cascade)
   businessClientId String
 
   services AppointmentService[]
@@ -105,17 +183,28 @@ model Appointment {
   updatedAt DateTime @updatedAt
 }
 
-model Service {
-  id           String               @id @default(cuid())
-  name         String
-  durationMin  Int?
-  price        Float
-  description  String?
-  isActive     Boolean              @default(true)
-  imageUrl     String?
-  appointments AppointmentService[]
+/**
+ * ============================
+ * SERVICES
+ * ============================
+ */
 
-  business   Business @relation(fields: [businessId], references: [id])
+model Service {
+  id              String  @id @default(cuid())
+  name            String
+  durationMin     Int
+  cleaningTimeMin Int     @default(0)
+  price           Float
+  description     String?
+  imageUrl        String?
+  category        String?
+
+  isActive Boolean @default(true)
+
+  appointments AppointmentService[]
+  users        UserService[]
+
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   businessId String
 
   createdAt DateTime @default(now())
@@ -128,8 +217,11 @@ model AppointmentService {
   appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
   appointmentId String
 
-  service   Service @relation(fields: [serviceId], references: [id])
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   serviceId String
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -137,10 +229,37 @@ model AppointmentService {
   @@unique([appointmentId, serviceId])
 }
 
+/**
+ * ============================
+ * USER ↔ SERVICE
+ * ============================
+ */
+
+model UserService {
+  id String @id @default(cuid())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  serviceId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, serviceId])
+}
+
+/**
+ * ============================
+ * NOTES
+ * ============================
+ */
+
 model Note {
-  id       String  @id @default(cuid())
-  content  String
-  isActive Boolean @default(true)
+  id        String    @id @default(cuid())
+  content   String
+  deletedAt DateTime?
 
   businessClientId String
   client           BusinessClient @relation(fields: [businessClientId], references: [id], onDelete: Cascade)
@@ -149,9 +268,27 @@ model Note {
   updatedAt DateTime @updatedAt
 }
 
-// ·······················
-// Enums
-// ·······················
+/**
+ * ============================
+ * CATEGORIES
+ * ============================
+ */
+
+/**
+ * ============================
+ * ENUMS
+ * ============================
+ */
+
+enum WeekDay {
+  sunday
+  monday
+  tuesday
+  wednesday
+  thursday
+  friday
+  saturday
+}
 
 enum BusinessPlan {
   BASIC

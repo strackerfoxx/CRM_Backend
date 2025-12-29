@@ -20,7 +20,7 @@ export async function getNotes(req, res) {
     const { businessClientId } = req.query
     try {
         const notes = await prisma.note.findMany({
-            where: { businessClientId, isActive: true }
+            where: { businessClientId, deletedAt: null }
         })
         return res.status(200).json({ notes })
     } catch (error) {
@@ -32,7 +32,7 @@ export async function getNoteById(req, res) {
     const { id } = req.query
     try {
         const note = await prisma.note.findMany({
-            where: { id, isActive: true }
+            where: { id, deletedAt: null }
         })
         return res.status(200).json({ note })
     } catch (error) {
@@ -61,7 +61,7 @@ export async function deleteNote(req, res) {
         await prisma.note.update({
             where: {id},
             data:{
-                isActive: false
+                deletedAt: new Date()
             }
         })
         return res.status(201).json({ msg: "Note deleted successfully" })

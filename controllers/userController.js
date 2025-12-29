@@ -41,17 +41,17 @@ export async function loginUser(req, res, next){
 
     try {
         const user = await prisma.user.findUnique({
-            where: { email, isActive: true }
+            where: { email, deletedAt: null }
         })
         const business = await prisma.business.findUnique({
-            where: {id: user.businessId, isActive: true}
+            where: { id: user.businessId, deletedAt: null }
         })
         return res.status(201).json({ token: await login(user, password), user: {name: user.name, role: user.role}})
     } catch (error) {
         if (error.code === "P2025") {
             return res.status(404).json({ msg: "User not found" })
         }
-        return res.status(500).json(error)
+        next(error);
     }
 }
 
@@ -59,11 +59,13 @@ export async function getUser(req, res) {
     const { id } = req.user
     try {
         const user = await prisma.user.findUnique({
-            where: { id, isActive: true },
-            include: { appointments: {
-                where: {isActive: true},
-                include: {services: true}
-            }}
+            where: { id, deletedAt: null },
+            include: { 
+                appointments: true,
+                services: true,
+                schedules: true,
+                blockedTimes: true
+            }
         })
         return res.status(200).json(user)
     } catch (error) {
@@ -81,12 +83,12 @@ export async function getAllUsers(req, res) {
     }
     try {
         const users = await prisma.user.findMany({
-            where: {isActive: true, businessId}
+            where: { deletedAt: null, businessId }
         })
         return res.status(200).json(users)
     } catch (error) {
         if (error.code === "P2025") {
-            return res.status(404).json({ msg: "User not found" })
+            return res.status(404).json({ msg: "Users not found" })
         }
         return res.status(500).json(error)
     }
@@ -103,7 +105,7 @@ export async function updateUser(req, res) {
     
     try {
         await prisma.user.update({
-            where: { id, isActive: true },
+            where: { id, deletedAt: null },
             data: { name, email, role, phone }
         })
         return res.status(200).json({ msg: "User updated successfully" })
@@ -120,11 +122,11 @@ export async function deleteUser(req, res) {
 
     try {
         await prisma.user.update({
-            where: { id, isActive: true },
-            data: { isActive: false }
+            where: { id, deletedAt: null },
+            data: { deletedAt: new Date() }
         })
         if(role === 'ADMIN'){
-            await changingBusinessState(businessId, false)
+            await changingBusinessState(businessId, new Date())
             return res.status(200).json({ msg: "User and Business deleted successfully" })
         }else{
             return res.status(200).json({ msg: "User deleted successfully" })

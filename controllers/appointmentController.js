@@ -20,48 +20,107 @@ export async function createAppointment(req, res) {
         businessClientId = req.client.id
         businessId = req.client.businessId
     }
-    const { date, services } = req.body
+    const { date, services, startTime } = req.body
 
     try {
-        const appointmentWithServices = await prisma.$transaction(async (prisma) => {
-            const appointment = await prisma.appointment.create({
-                data: {
-                    date: new Date(date),
-                    businessClientId,
-                    businessId,
-                }
-            })
+            const appointmentWithServices = await prisma.$transaction(async (prisma) => {
+                if (services && services.length > 0) {
 
-            // after creating the appointment we create the appointmentService and link it with the appointment
-            if (services && services.length > 0) {
-                const appointmentServicesData = services.map(serviceId => ({
-                    appointmentId: appointment.id,
-                    serviceId
-                }))
+                    // Ahora lo que tenemos que hacer es adaptar la logica que ya esta hecha y funciona con la nueva que es basicamente
+                    // lo mismo pero el array de services ahora es un array de objetos con serviceId y userId
 
-                await prisma.appointmentService.createMany({
-                    data: appointmentServicesData
-                })
-            }
+                    const servicesIds = services.map(s => (typeof s === "object" && s != null) ? s.serviceId : s);
+                    
+                    const servicesData = await prisma.service.findMany({
+                        where: {
+                            id: {
+                                in: servicesIds
+                            },
 
-            // we return the appointment object with the services
-            const fullAppointment = await prisma.appointment.findUnique({
-                where: { id: appointment.id },
-                include: {
-                    services: {
-                        include: {
-                            service: true
+                            businessId
+                        }
+                    })
+
+                    if(servicesData.length !== services.length){
+                        return res.status(400).json({ msg: "One or more services are invalid" })
+                    }
+
+                    // Validate that when a userId is provided for a service, the user is allowed to perform that service
+                    const invalidAssignments = []
+                    for (const item of services) {
+                        if (item && typeof item === "object" && item.userId) {
+                            const canDo = await prisma.userService.findFirst({
+                                where: {
+                                    userId: item.userId,
+                                    serviceId: item.serviceId
+                                }
+                            });
+                            if (!canDo) invalidAssignments.push({ serviceId: item.serviceId, userId: item.userId })
                         }
                     }
+                    if (invalidAssignments.length > 0) {
+                        return res.status(400).json({ msg: "User not allowed for one or more services", details: invalidAssignments })
+                    }
+
+                    const durationMin = servicesData.reduce((total, service) => total + service.durationMin + service.cleaningTimeMin, 0)
+
+                    const [h, m] = startTime.split(":")
+                    const totalDuration = (Number(h) * 60 + Number(m)) + durationMin
+
+                    function formatMinutes(mins) {
+                        const h = String(Math.floor(mins / 60)).padStart(2, "0")
+                        const m = String(mins % 60).padStart(2, "0")
+                        return `${h}:${m}`
+                    }
+
+                    const appointment = await prisma.appointment.create({
+                        data: {
+                            date: new Date(date),
+                            businessClientId,
+                            businessId,
+                            startTime,
+                            endTime: formatMinutes(totalDuration), 
+                            durationMin
+                        }
+                    })
+
+                    // after creating the appointment we create the appointmentService and link it with the appointment
+                    const appointmentServicesData = services.map(service => ({
+                        appointmentId: appointment.id,
+                        serviceId: (typeof service === "object" && service != null) ? service.serviceId : service,
+                        userId: (typeof service === "object" && service != null) ? (service.userId ?? null) : null
+                    }))
+
+                    await prisma.appointmentService.createMany({
+                        data: appointmentServicesData
+                    })
+                    
+
+                    // we return the appointment object with the services
+                    const fullAppointment = await prisma.appointment.findUnique({
+                        where: { id: appointment.id },
+                        include: {
+                            services: {
+                                include: {
+                                    service: true
+                                }
+                            }
+                        }
+                    })
+                    return res.status(201).json({ msg: "Appointment created successfully", appointment: fullAppointment })
+                }else{
+                    return res.status(400).json({ msg: "Services are required" })
                 }
             })
-            return res.status(201).json({ msg: "Appointment created successfully", appointment: fullAppointment })
-        })
     } catch (error) {
         if (error.code === "P2002") {
             return res.status(409).json({ msg: "Appointment already exists" })
         }
-        return res.status(500).json(error)
+        return res.status(500).json({
+            message: error.message,
+            meta: error.meta,
+            stack: error.stack
+        })
     }
 
 }
@@ -72,7 +131,6 @@ export async function getAppointments(req, res) {
     try {
         const appointments = await prisma.appointment.findMany({
             where: {
-                isActive: true,
                 businessId
             }, include: {
                 services: {
@@ -113,7 +171,6 @@ export async function getAppointmentById(req, res) {
         const appointment = await prisma.appointment.findUnique({
             where: {
                 id,
-                isActive: true
             }, include: {
                 services: {
                     include: {
@@ -174,8 +231,7 @@ export async function updateAppointment(req, res) {
                 // if so we only update the status and return the appointment
                 const appointment = await prisma.appointment.update({
                     where: {
-                        id,
-                        isActive: true
+                        id
                     },
                     data: {
                         status
@@ -184,7 +240,7 @@ export async function updateAppointment(req, res) {
 
                 // we return the appointment object with the services
                 const fullAppointment = await prisma.appointment.findUnique({
-                    where: { id: appointment.id, isActive: true },
+                    where: { id: appointment.id },
                     include: {
                         services: {
                             include: {
@@ -199,8 +255,7 @@ export async function updateAppointment(req, res) {
             // if not we update the date, and services
             const appointment = await prisma.appointment.update({
                 where: {
-                    id,
-                    isActive: true
+                    id
                 },
                 data: {
                     date: new Date(date),
@@ -214,12 +269,39 @@ export async function updateAppointment(req, res) {
                     where: { appointmentId: appointment.id }
                 })
 
-                // them we create new relations
+                // then we create new relations. Support both array of serviceIds or array of objects { serviceId, userId }
                 if (services.length > 0) {
-                    const appointmentServicesData = services.map(serviceId => ({
-                        appointmentId: appointment.id,
-                        serviceId
-                    }))
+                    const invalidAssignments = []
+                    const appointmentServicesData = services.map(s => {
+                        if (s && typeof s === "object") {
+                            return {
+                                appointmentId: appointment.id,
+                                serviceId: s.serviceId,
+                                userId: s.userId ?? null
+                            }
+                        }
+                        return {
+                            appointmentId: appointment.id,
+                            serviceId: s,
+                            userId: null
+                        }
+                    })
+
+                    // Validate assignments for objects with userId
+                    for (const item of services) {
+                        if (item && typeof item === "object" && item.userId) {
+                            const canDo = await prisma.userService.findFirst({
+                                where: {
+                                    userId: item.userId,
+                                    serviceId: item.serviceId
+                                }
+                            })
+                            if (!canDo) invalidAssignments.push({ serviceId: item.serviceId, userId: item.userId })
+                        }
+                    }
+                    if (invalidAssignments.length > 0) {
+                        return res.status(400).json({ msg: "User not allowed for one or more services", details: invalidAssignments })
+                    }
 
                     await prisma.appointmentService.createMany({
                         data: appointmentServicesData
@@ -229,7 +311,7 @@ export async function updateAppointment(req, res) {
 
             // we return the appointment object with the services
             const fullAppointment = await prisma.appointment.findUnique({
-                where: { id: appointment.id, isActive: true },
+                where: { id: appointment.id },
                 include: {
                     services: {
                         include: {

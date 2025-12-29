@@ -68,7 +68,6 @@ export async function createClientSelfService(req, res) {
         })
 
         if(client){
-            console.log("from client exists")
             // if the client exists we check if it is already associated with the business
             if(client.businesses.find(b => b.businessId === businessId)) return res.status(409).json({ msg: "Client already exists" })
             // if not we create the relation with the business
@@ -80,7 +79,7 @@ export async function createClientSelfService(req, res) {
 
         // if not we create the client and the relation with the business
         const newClient = await prisma.client.create({
-            data: { 
+            data: {
                 name, 
                 email, 
                 phone, 
@@ -149,7 +148,7 @@ export async function loginClient(req, res) {
         const businessClient = await prisma.businessClient.findFirst({
             where: {
                 client:{ phone },
-                isActive: true
+                deletedAt: null
             }, include: {
                 client:{ 
                     select:{
@@ -183,7 +182,7 @@ export async function getClients(req, res) {
         const clients = await prisma.businessClient.findMany({
             where: {
                 businessId, 
-                isActive: true
+                deletedAt: null
             }
         })
         return res.status(200).json({clients})
@@ -202,7 +201,7 @@ export async function getClientById(req, res) {
         const client = await prisma.businessClient.findUnique({
             where: {
                 id, 
-                isActive: true
+                deletedAt: null
             }
         })
         return res.status(200).json({client})
@@ -214,21 +213,48 @@ export async function getClientById(req, res) {
     }
 }
 
+export async function updateClient(req, res){
+    const { id, name, phone, email } = req.body
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+    
+    try {
+        await prisma.client.update({
+            where: {id},
+            data: {
+                name,
+                phone,
+                email
+            }
+        })
+        res.status(201).json({ msg: "Client updated successfully" })
+    } catch (error) {
+        if (error.code === "P2005") {
+            return res.status(409).json({ msg: "Client doesnt exists" })
+        }
+        return res.status(500).json(error)
+    }
+}
+
 export async function deleteClient(req, res) {
     const { id } = req.body
     try {
         const clients = await prisma.businessClient.update({
             where: {
-                id 
+                id,
+                deletedAt: null
             },
             data: {
-                isActive: false
+                deletedAt: new Date()
             }
         })
         return res.status(200).json({clients})
     } catch (error) {
         if (error.code === "P2005") {
-            return res.status(409).json({ msg: "Business doesnt exists" })
+            return res.status(409).json({ msg: "Client doesnt exists" })
         }
         return res.status(500).json(error)
     }
