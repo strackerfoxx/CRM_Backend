@@ -166,6 +166,9 @@ model Appointment {
   endTime     String
   durationMin Int
 
+  startTimeMinutes Int
+  endTimeMinutes   Int
+
   status AppointmentStatus @default(SCHEDULED)
 
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)

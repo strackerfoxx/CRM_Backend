@@ -2,127 +2,281 @@ import { validationResult } from 'express-validator';
 import {PrismaClient} from '@prisma/client';
 const prisma = new PrismaClient()
 
-export async function createAppointment(req, res) {
+import { calculateAvailableSlots } from '../services/calculateAvailableSlots.js';
 
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
+
+import { orderedDays, parseHourToMinutes, formatMinutes, isSameDay } from '../helpers/availability.js';
+
+export async function getAvailableDates(req, res) {
+  const { businessId, services, from, days = 14 } = req.body
+
+  if (!services || !services.length) {
+    return res.status(400).json({ error: "services[] is required" })
+  }
+
+  const serviceIds = Array.isArray(services) ? services : [services]
+  const startDate = from ? new Date(from) : new Date()
+
+  // 1. Obtener servicios
+  const serviceRecords = await prisma.service.findMany({
+    where: {
+      id: { in: serviceIds },
+      businessId,
+      isActive: true
     }
+  })
 
-    let businessClientId = ""
-    let businessId = ""
+  if (serviceRecords.length !== serviceIds.length) {
+    return res.json([])
+  }
 
-    if(req.user.id){
-        businessClientId = req.body.businessClientId
-        businessId = req.user.businessId
+  const totalDuration = serviceRecords.reduce(
+    (sum, s) => sum + s.durationMin + s.cleaningTimeMin,
+    0
+  )
+
+  // 2. Usuarios compatibles (deben poder hacer TODOS los servicios)
+  const users = await prisma.user.findMany({
+    where: {
+      businessId,
+      deletedAt: null
+    },
+    include: {
+      schedules: true,
+      services: true
     }
-    if(req.client.id){
-        businessClientId = req.client.id
-        businessId = req.client.businessId
+  })
+
+  const compatibleUsers = users.filter(user =>
+    serviceIds.every(serviceId =>
+      user.services.some(us => us.serviceId === serviceId)
+    )
+  )
+
+  if (!compatibleUsers.length) return res.json([])
+
+  // 3. Pre-cargar citas y bloqueos
+  const endDate = new Date(startDate)
+  endDate.setDate(startDate.getDate() + Number(days))
+
+  const appointments = await prisma.appointment.findMany({
+    where: {
+      businessId,
+      status: { not: "CANCELED" },
+      date: { gte: startDate, lte: endDate }
     }
-    const { date, services, startTime } = req.body
+  })
 
-    try {
-            const appointmentWithServices = await prisma.$transaction(async (prisma) => {
-                if (services && services.length > 0) {
+  const blockedTimes = await prisma.blockedTime.findMany({
+    where: {
+      businessId,
+      date: { gte: startDate, lte: endDate }
+    }
+  })
 
-                    // Ahora lo que tenemos que hacer es adaptar la logica que ya esta hecha y funciona con la nueva que es basicamente
-                    // lo mismo pero el array de services ahora es un array de objetos con serviceId y userId
+  const validDates = []
 
-                    const servicesIds = services.map(s => (typeof s === "object" && s != null) ? s.serviceId : s);
-                    
-                    const servicesData = await prisma.service.findMany({
-                        where: {
-                            id: {
-                                in: servicesIds
-                            },
+  // 4. Evaluar día por día
+  for (let i = 0; i < days; i++) {
+    const currentDate = new Date(startDate)
+    currentDate.setDate(startDate.getDate() + i)
 
-                            businessId
-                        }
-                    })
+    const weekday = orderedDays[currentDate.getDay()]
+    let hasSlot = false
 
-                    if(servicesData.length !== services.length){
-                        return res.status(400).json({ msg: "One or more services are invalid" })
-                    }
+    for (const user of compatibleUsers) {
+      const schedule = user.schedules.find(s => s.dayOfWeek === weekday)
+      if (!schedule) continue
+      
+      const open = parseHourToMinutes(schedule.startTime)
+      const close = parseHourToMinutes(schedule.endTime)
+      if (isNaN(open) || isNaN(close)) continue
 
-                    // Validate that when a userId is provided for a service, the user is allowed to perform that service
-                    const invalidAssignments = []
-                    for (const item of services) {
-                        if (item && typeof item === "object" && item.userId) {
-                            const canDo = await prisma.userService.findFirst({
-                                where: {
-                                    userId: item.userId,
-                                    serviceId: item.serviceId
-                                }
-                            });
-                            if (!canDo) invalidAssignments.push({ serviceId: item.serviceId, userId: item.userId })
-                        }
-                    }
-                    if (invalidAssignments.length > 0) {
-                        return res.status(400).json({ msg: "User not allowed for one or more services", details: invalidAssignments })
-                    }
+      const occupied = []
 
-                    const durationMin = servicesData.reduce((total, service) => total + service.durationMin + service.cleaningTimeMin, 0)
+      // bloqueos (globales + del user)
+      blockedTimes
+        .filter(b =>
+          isSameDay(b.date, currentDate) &&
+          (!b.userId || b.userId === user.id)
+        )
+        .forEach(b =>
+          occupied.push({
+            start: parseHourToMinutes(b.start),
+            end: parseHourToMinutes(b.end)
+          })
+        )
 
-                    const [h, m] = startTime.split(":")
-                    const totalDuration = (Number(h) * 60 + Number(m)) + durationMin
+      // citas del user
+      appointments
+        .filter(a =>
+          a.userId === user.id &&
+          isSameDay(a.date, currentDate)
+        )
+        .forEach(a =>
+          occupied.push({
+            start: parseHourToMinutes(a.startTime),
+            end: parseHourToMinutes(a.endTime)
+          })
+        )
 
-                    function formatMinutes(mins) {
-                        const h = String(Math.floor(mins / 60)).padStart(2, "0")
-                        const m = String(mins % 60).padStart(2, "0")
-                        return `${h}:${m}`
-                    }
+      // generar slots
+      for (let t = open; t + totalDuration <= close; t += 30) {
+        const overlaps = occupied.some(r =>
+          t < r.end && t + totalDuration > r.start
+        )
 
-                    const appointment = await prisma.appointment.create({
-                        data: {
-                            date: new Date(date),
-                            businessClientId,
-                            businessId,
-                            startTime,
-                            endTime: formatMinutes(totalDuration), 
-                            durationMin
-                        }
-                    })
-
-                    // after creating the appointment we create the appointmentService and link it with the appointment
-                    const appointmentServicesData = services.map(service => ({
-                        appointmentId: appointment.id,
-                        serviceId: (typeof service === "object" && service != null) ? service.serviceId : service,
-                        userId: (typeof service === "object" && service != null) ? (service.userId ?? null) : null
-                    }))
-
-                    await prisma.appointmentService.createMany({
-                        data: appointmentServicesData
-                    })
-                    
-
-                    // we return the appointment object with the services
-                    const fullAppointment = await prisma.appointment.findUnique({
-                        where: { id: appointment.id },
-                        include: {
-                            services: {
-                                include: {
-                                    service: true
-                                }
-                            }
-                        }
-                    })
-                    return res.status(201).json({ msg: "Appointment created successfully", appointment: fullAppointment })
-                }else{
-                    return res.status(400).json({ msg: "Services are required" })
-                }
-            })
-    } catch (error) {
-        if (error.code === "P2002") {
-            return res.status(409).json({ msg: "Appointment already exists" })
+        if (!overlaps) {
+          hasSlot = true
+          break
         }
-        return res.status(500).json({
-            message: error.message,
-            meta: error.meta,
-            stack: error.stack
-        })
+      }
+
+      if (hasSlot) break
     }
 
+    if (hasSlot) {
+      validDates.push(currentDate.toISOString().split("T")[0])
+    }
+  }
+
+  return res.status(201).json({ validDates })
+}
+
+export const getAvailableSlots = async (req, res) => {
+  try {
+    const slots = await calculateAvailableSlots(req.body)
+    return res.status(200).json({ slots })
+
+  } catch (error) {
+    console.error(error)
+    return res.status(500).json({
+        message: error.message,
+        meta: error.meta,
+        stack: error.stack
+    })
+  }
+}
+
+export async function createAppointment(req, res) {
+  try {
+    const {
+      businessId,
+      businessClientId,
+      date,
+      startTime,
+      services
+    } = req.body
+
+    if (
+      !businessId ||
+      !businessClientId ||
+      !date ||
+      !startTime ||
+      !services?.length
+    ) {
+      return res.status(400).json({ error: "Missing required fields" })
+    }
+
+    /**
+     * 1 Obtener servicios
+     */
+    const serviceIds = services.map(s => s.serviceId)
+
+
+    const dbServices = await prisma.service.findMany({
+      where: {
+        id: { in: serviceIds },
+        businessId,
+        isActive: true
+      }
+    })
+    if (dbServices.length !== serviceIds.length) {
+      return res.status(400).json({ error: "Invalid services" })
+    }
+
+    /**
+     * 2 Construir timeline por servicio
+     */
+    let currentMinutes = parseHourToMinutes(startTime)
+    const timeline = []
+
+    for (const s of services) {
+      const service = dbServices.find(d => d.id === s.serviceId)
+      const duration =
+        service.durationMin + (service.cleaningTimeMin || 0)
+
+      timeline.push({
+        serviceId: s.serviceId,
+        userId: s.userId || null,
+        start: currentMinutes,
+        end: currentMinutes + duration
+      })
+
+      currentMinutes += duration
+    }
+
+    const endTime = formatMinutes(currentMinutes)
+    const totalDuration = currentMinutes - parseHourToMinutes(startTime)
+
+    /**
+     * 3 Revalidar disponibilidad POR USER
+     */
+    for (const block of timeline) {
+      const availableSlots = await calculateAvailableSlots({
+        date,
+        businessId,
+        services
+      })
+
+
+      const slotStart = formatMinutes(block.start)
+
+      if (!availableSlots.includes(slotStart)) {
+        return res
+          .status(409)
+          .json({ error: "Schedule not available" })
+      }
+    }
+
+    /**
+     * 4 Crear cita (transacción)
+     */
+    const appointment = await prisma.$transaction(async tx => {
+      const appointment = await tx.appointment.create({
+        data: {
+          businessId,
+          businessClientId,
+          date: new Date(`${date}T00:00:00`),
+          startTime,
+          endTime,
+         startTimeMinutes: parseHourToMinutes(startTime),
+          endTimeMinutes: currentMinutes,
+          durationMin: totalDuration,
+          status: "SCHEDULED"
+        }
+      })
+
+      await tx.appointmentService.createMany({
+        data: timeline.map(t => ({
+          appointmentId: appointment.id,
+          serviceId: t.serviceId,
+          userId: t.userId
+        }))
+      })
+
+      return appointment
+    })
+
+    return res.status(201).json({msg: "Appointment created successfully", appointment})
+  } catch (error) {
+    console.error(error)
+    return res.status(500).json({
+        message: error.message,
+        meta: error.meta,
+        stack: error.stack
+    })
+  }
 }
 
 export async function getAppointments(req, res) {
