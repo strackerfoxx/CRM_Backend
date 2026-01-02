@@ -1,67 +1,41 @@
 import {PrismaClient} from '@prisma/client';
 const prisma = new PrismaClient()
 
-const orderedDays = [
-  "sunday",
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday"
-]
 
-const parseToMinutes = (time) => {
-  if (!time) return null
-  const [h, m] = time.split(":").map(Number)
-  return h * 60 + (m || 0)
-}
-
-const formatMinutes = (mins) => {
-  const h = String(Math.floor(mins / 60)).padStart(2, "0")
-  const m = String(mins % 60).padStart(2, "0")
-  return `${h}:${m}`
-}
-
-
-/* ---------------- main ---------------- */
+import { orderedDays, parseHourToMinutes, formatMinutes, BLOCKING_APPOINTMENT_STATUSES } from '../helpers/availability.js';
 
 export async function calculateAvailableSlots({
   date,
   businessId,
-  services
+  services,
+  excludeAppointmentId = null
 }) {
   if (!date || !businessId || !services?.length) {
     throw new Error("Missing required fields")
   }
 
-  /* 1️⃣ Business */
+  //  1 Business
   const business = await prisma.business.findUnique({
     where: { id: businessId }
   })
-
   if (!business) throw new Error("Business not found")
 
-  /* 2️⃣ Business hours */
+  //  2 Business hours
   const dayKey = orderedDays[new Date(date).getDay()]
   const dayHours = business.businessHours?.[dayKey]
 
   if (!dayHours?.open || !dayHours?.close) {
-    return []
+    return { slots: [], resolveServicesForSlot: async () => [] }
   }
 
-  const dayStartMin = parseToMinutes(dayHours.open)
-  const dayEndMin = parseToMinutes(dayHours.close)
+  const dayStartMin = parseHourToMinutes(dayHours.open)
+  const dayEndMin = parseHourToMinutes(dayHours.close)
 
-  if (
-    dayStartMin === null ||
-    dayEndMin === null ||
-    dayStartMin >= dayEndMin
-  ) {
-    return []
+  if (dayStartMin >= dayEndMin) {
+    return { slots: [], resolveServicesForSlot: async () => [] }
   }
 
-  /* 3️⃣ Services */
+  //  3 Services
   const serviceIds = services.map(s => s.serviceId)
 
   const dbServices = await prisma.service.findMany({
@@ -84,25 +58,7 @@ export async function calculateAvailableSlots({
     0
   )
 
-  const usersByService = new Map()
-
-  const serviceUsers = await prisma.userService.findMany({
-    where: {
-      serviceId: { in: serviceIds }
-    },
-    include: {
-      user: true
-    }
-  })
-
-  for (const us of serviceUsers) {
-    if (!usersByService.has(us.serviceId)) {
-      usersByService.set(us.serviceId, [])
-    }
-    usersByService.get(us.serviceId).push(us.user)
-  }
-
-  /* 4️⃣ Existing appointments (IMPORTANT FIX) */
+  //  4 Existing appointments
   const dayStart = new Date(date)
   const dayEnd = new Date(date)
   dayEnd.setDate(dayEnd.getDate() + 1)
@@ -114,6 +70,12 @@ export async function calculateAvailableSlots({
         date: {
           gte: dayStart,
           lt: dayEnd
+        },
+        ...(excludeAppointmentId && {
+          id: { not: excludeAppointmentId }
+        }),
+        status: {
+          in: BLOCKING_APPOINTMENT_STATUSES
         }
       }
     },
@@ -128,9 +90,27 @@ export async function calculateAvailableSlots({
     userId: a.userId
   }))
 
-  /* 5️⃣ Generate slots */
-  const slots = []
+  // 5 Cache users per service
+  const usersByService = {}
+
+  for (const serviceId of serviceIds) {
+    const users = await prisma.user.findMany({
+      where: {
+        businessId,
+        deletedAt: null,
+        services: {
+          some: { serviceId }
+        }
+      },
+      select: { id: true }
+    })
+
+    usersByService[serviceId] = users.map(u => u.id)
+  }
+
+  // 6 Generate slots
   const step = business.defaultSlotInterval || 30
+  const slots = []
 
   for (
     let start = dayStartMin;
@@ -148,45 +128,30 @@ export async function calculateAvailableSlots({
       const blockStart = cursor
       const blockEnd = cursor + duration
 
-      let conflict = false
-
-      // CASO 1: user específico
       if (userId) {
-        conflict = ranges.some(r =>
+        const conflict = ranges.some(r =>
           r.userId === userId &&
           blockStart < r.end &&
           blockEnd > r.start
         )
-      }
-
-      // CASO 2: sin user → lógica por capacidad
-      else {
-        const possibleUsers = usersByService.get(serviceId) || []
-
-        let busyUsers = 0
-
-        for (const user of possibleUsers) {
-          const isBusy = ranges.some(r =>
-            r.userId === user.id &&
+        if (conflict) {
+          valid = false
+          break
+        }
+      } else {
+        const candidates = usersByService[serviceId]
+        const hasFreeUser = candidates.some(uid =>
+          !ranges.some(r =>
+            r.userId === uid &&
             blockStart < r.end &&
             blockEnd > r.start
           )
+        )
 
-          if (isBusy) busyUsers++
+        if (!hasFreeUser) {
+          valid = false
+          break
         }
-
-        // solo conflicto si TODOS están ocupados
-        if (
-          possibleUsers.length > 0 &&
-          busyUsers === possibleUsers.length
-        ) {
-          conflict = true
-        }
-      }
-
-      if (conflict) {
-        valid = false
-        break
       }
 
       cursor = blockEnd
@@ -197,5 +162,57 @@ export async function calculateAvailableSlots({
     }
   }
 
-  return slots
+  // 7 Resolver users para un slot específico
+  async function resolveServicesForSlot(startTime) {
+    const startMinutes = parseHourToMinutes(startTime)
+    let cursor = startMinutes
+
+    const resolved = []
+
+    for (const item of services) {
+      const service = serviceMap[item.serviceId]
+      const duration =
+        service.durationMin + (service.cleaningTimeMin || 0)
+
+      const blockStart = cursor
+      const blockEnd = cursor + duration
+
+      if (item.userId) {
+        resolved.push({
+          serviceId: item.serviceId,
+          userId: item.userId
+        })
+        cursor = blockEnd
+        continue
+      }
+
+      const candidates = usersByService[item.serviceId]
+
+      const freeUser = candidates.find(uid =>
+        !ranges.some(r =>
+          r.userId === uid &&
+          blockStart < r.end &&
+          blockEnd > r.start
+        )
+      )
+
+      if (!freeUser) {
+        throw new Error("Slot no longer available")
+      }
+
+      resolved.push({
+        serviceId: item.serviceId,
+        userId: freeUser
+      })
+
+      cursor = blockEnd
+    }
+
+    return resolved
+  }
+
+  return {
+    slots,
+    resolveServicesForSlot
+  }
 }

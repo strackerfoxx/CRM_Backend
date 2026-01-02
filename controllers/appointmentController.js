@@ -145,8 +145,8 @@ export async function getAvailableDates(req, res) {
 
 export const getAvailableSlots = async (req, res) => {
   try {
-    const slots = await calculateAvailableSlots(req.body)
-    return res.status(200).json({ slots })
+    const {slots} = await calculateAvailableSlots(req.body)
+    return res.status(200).json( slots )
 
   } catch (error) {
     console.error(error)
@@ -222,14 +222,16 @@ export async function createAppointment(req, res) {
     /**
      * 3 Revalidar disponibilidad POR USER
      */
+
+    const calculations = await calculateAvailableSlots({
+      date,
+      businessId,
+      services
+    })
+    const availableSlots = calculations.slots
+    const resolvedServicesForSlot = await calculations.resolveServicesForSlot(startTime)
+    
     for (const block of timeline) {
-      const availableSlots = await calculateAvailableSlots({
-        date,
-        businessId,
-        services
-      })
-
-
       const slotStart = formatMinutes(block.start)
 
       if (!availableSlots.includes(slotStart)) {
@@ -237,6 +239,17 @@ export async function createAppointment(req, res) {
           .status(409)
           .json({ error: "Schedule not available" })
       }
+    }
+
+    const invalidUserService = services.some(
+      s => s.userId && !dbServices.find(ds =>
+        ds.id === s.serviceId &&
+        ds.users?.some(u => u.userId === s.userId)
+      )
+    )
+
+    if (invalidUserService) {
+      throw new Error("User not allowed for one or more services")
     }
 
     /**
@@ -250,7 +263,7 @@ export async function createAppointment(req, res) {
           date: new Date(`${date}T00:00:00`),
           startTime,
           endTime,
-         startTimeMinutes: parseHourToMinutes(startTime),
+          startTimeMinutes: parseHourToMinutes(startTime),
           endTimeMinutes: currentMinutes,
           durationMin: totalDuration,
           status: "SCHEDULED"
@@ -258,10 +271,10 @@ export async function createAppointment(req, res) {
       })
 
       await tx.appointmentService.createMany({
-        data: timeline.map(t => ({
+        data: resolvedServicesForSlot.map(resolved => ({
           appointmentId: appointment.id,
-          serviceId: t.serviceId,
-          userId: t.userId
+          serviceId: resolved.serviceId,
+          userId: resolved.userId
         }))
       })
 
@@ -358,130 +371,164 @@ export async function getAppointmentById(req, res) {
 }
 
 export async function updateAppointment(req, res) {
+  try {
+    const {
+      appointmentId,
+      date,
+      startTime,
+      businessId,
+      businessClientId,
+      services,
+      status
+    } = req.body
 
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
+    if (
+      !appointmentId ||
+      !date ||
+      !startTime ||
+      !businessId ||
+      !businessClientId ||
+      !status ||
+      !services?.length
+    ) {
+      return res.status(400).json({ message: "Missing required fields" })
     }
 
-    const { id, date, services, status } = req.body
+    /* 1️⃣ Obtener cita */
+    const appointment = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: {
+        services: true
+      }
+    })
 
-    try {
-        const updateAppointment = await prisma.$transaction(async (prisma) => {
-            // we check if the appointment isnt canceled or completed
-            if(status !== "SCHEDULED"){
+    if (!appointment) {
+      return res.status(404).json({ message: "Appointment not found" })
+    }
 
-                // check the status of the appointment to not allow to change it if doesnt follow the flow
-                const appointmentExist = await prisma.appointment.findUnique({
-                    where: { id }
-                })
+    if (appointment.businessId !== businessId) {
+      return res.status(403).json({ message: "Invalid business" })
+    }
 
-                if(appointmentExist.status === "CANCELED"){
-                    return res.status(200).json({ msg: `This appointment was canceled on ${appointmentExist.updatedAt}` })
-                }else if(appointmentExist.status === "COMPLETED"){
-                    return res.status(200).json({ msg: "Appointment has been completed" })
-                }
+    if (appointment.status === "COMPLETED") {
+      return res
+        .status(409)
+        .json({ message: "Completed appointments cannot be updated" })
+    }
 
-                // if so we only update the status and return the appointment
-                const appointment = await prisma.appointment.update({
-                    where: {
-                        id
-                    },
-                    data: {
-                        status
-                    }
-                })
+    /* 2️⃣ Validar disponibilidad (EXCLUYENDO esta cita) */
+    const calculations = await calculateAvailableSlots({
+      date,
+      businessId,
+      services,
+      excludeAppointmentId: appointmentId
+    })
+    const availableSlots = calculations.slots
+    const resolvedServicesForSlot = await calculations.resolveServicesForSlot(startTime)
 
-                // we return the appointment object with the services
-                const fullAppointment = await prisma.appointment.findUnique({
-                    where: { id: appointment.id },
-                    include: {
-                        services: {
-                            include: {
-                                service: true
-                            }
-                        }
-                    }
-                })
-                return res.status(201).json({ appointment: fullAppointment })
-            }
+    if (!availableSlots.includes(startTime)) {
+      return res.status(409).json({
+        message: "Selected slot is no longer available"
+      })
+    }
 
-            // if not we update the date, and services
-            const appointment = await prisma.appointment.update({
-                where: {
-                    id
-                },
-                data: {
-                    date: new Date(date),
-                }
-            })
+    /* 3️⃣ Obtener servicios reales */
+    const serviceIds = services.map(s => s.serviceId)
 
-            // after creating the appointment we check if services were sent
-            if (services) {
-                // if so we delete the relation between the appointment and the service
-                await prisma.appointmentService.deleteMany({
-                    where: { appointmentId: appointment.id }
-                })
+    const dbServices = await prisma.service.findMany({
+      where: {
+        id: { in: serviceIds },
+        businessId
+      }
+    })
 
-                // then we create new relations. Support both array of serviceIds or array of objects { serviceId, userId }
-                if (services.length > 0) {
-                    const invalidAssignments = []
-                    const appointmentServicesData = services.map(s => {
-                        if (s && typeof s === "object") {
-                            return {
-                                appointmentId: appointment.id,
-                                serviceId: s.serviceId,
-                                userId: s.userId ?? null
-                            }
-                        }
-                        return {
-                            appointmentId: appointment.id,
-                            serviceId: s,
-                            userId: null
-                        }
-                    })
+    if (dbServices.length !== serviceIds.length) {
+      return res.status(400).json({ message: "Invalid services" })
+    }
 
-                    // Validate assignments for objects with userId
-                    for (const item of services) {
-                        if (item && typeof item === "object" && item.userId) {
-                            const canDo = await prisma.userService.findFirst({
-                                where: {
-                                    userId: item.userId,
-                                    serviceId: item.serviceId
-                                }
-                            })
-                            if (!canDo) invalidAssignments.push({ serviceId: item.serviceId, userId: item.userId })
-                        }
-                    }
-                    if (invalidAssignments.length > 0) {
-                        return res.status(400).json({ msg: "User not allowed for one or more services", details: invalidAssignments })
-                    }
+    const serviceMap = Object.fromEntries(
+      dbServices.map(s => [s.id, s])
+    )
 
-                    await prisma.appointmentService.createMany({
-                        data: appointmentServicesData
-                    })
-                }
-            }
+    /* 4️⃣ Calcular nuevos tiempos */
+    const startMinutes = parseHourToMinutes(startTime)
 
-            // we return the appointment object with the services
-            const fullAppointment = await prisma.appointment.findUnique({
-                where: { id: appointment.id },
-                include: {
-                    services: {
-                        include: {
-                            service: true
-                        }
-                    }
-                }
-            })
-            return res.status(201).json({ appointment: fullAppointment })
-        })
-    } catch (error) {
-        if (error.code === "P2025") {
-            return res.status(409).json({ msg: "Appointment doesnt exists" })
+    let cursor = startMinutes
+    const serviceBlocks = []
+
+    for (const { serviceId, userId } of services) {
+      const service = serviceMap[serviceId]
+      const duration =
+      service.durationMin + (service.cleaningTimeMin || 0)
+
+      serviceBlocks.push({
+        serviceId,
+        userId: userId || null,
+        start: cursor,
+        end: cursor + duration
+      })
+
+      cursor += duration
+    }
+
+    const endMinutes = cursor
+
+    const invalidUserService = services.some(
+      s => s.userId && !dbServices.find(ds =>
+        ds.id === s.serviceId &&
+        ds.users?.some(u => u.userId === s.userId)
+      )
+    )
+
+    if (invalidUserService) {
+      throw new Error("User not allowed for one or more services")
+    }
+
+    /* 5️⃣ Transacción */
+    const updated = await prisma.$transaction(async tx => {
+      // borrar services anteriores
+      await tx.appointmentService.deleteMany({
+        where: { appointmentId }
+      })
+
+      // actualizar cita
+      const updatedAppointment = await tx.appointment.update({
+        where: { id: appointmentId },
+        data: {
+          date: new Date(date),
+          startTime,
+          endTime: `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`,
+          startTimeMinutes: startMinutes,
+          endTimeMinutes: endMinutes,
+          businessClientId,
+          status
         }
-        return res.status(500).json(error)
-    }
+      })
+
+      // crear nuevos appointmentServices
+      for (const { serviceId, userId } of resolvedServicesForSlot) {
+        await tx.appointmentService.create({
+          data: {
+            appointmentId,
+            serviceId,
+            userId: userId || null
+          }
+        })
+      }
+
+      return updatedAppointment
+    })
+
+    return res.status(200).json(updated)
+
+  } catch (error) {
+    console.error(error)
+    return res.status(500).json({
+      message: error.message,
+      meta: error.meta,
+      stack: error.stack
+    })
+  }
 }
 
 export async function deleteAppointment(req, res) {

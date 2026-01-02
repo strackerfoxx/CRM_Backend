@@ -8,6 +8,11 @@ export const orderedDays = [
   "saturday"
 ]
 
+export const BLOCKING_APPOINTMENT_STATUSES = [
+  'SCHEDULED',
+  'CONFIRMED'
+]
+
 export function parseHourToMinutes(value) {
   if (!value) return NaN
   const [h, m] = value.split(":")
