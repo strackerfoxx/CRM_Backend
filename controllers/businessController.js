@@ -4,6 +4,14 @@ const prisma = new PrismaClient()
 
 import { changingBusinessState } from '../middlewares/handleBusiness.js';
 
+
+
+// 
+// Ahora tenemos que agregar las businessHours y specialDays en el createBusiness controller
+// 
+
+
+
 export async function createBusiness(req, res){
 
     const errors = validationResult(req);
@@ -11,7 +19,24 @@ export async function createBusiness(req, res){
         return res.status(400).json({ errors: errors.array() });
     }
 
-    const {name, address, phone, email} = req.body
+    const {
+        name, 
+        address, 
+        phone, 
+        email, 
+        businessHours, 
+        specialDays
+    } = req.body
+
+    const defaultBusinessHours = {
+        "sunday": { "open": "00:00", "close": "00:00", "closed": true },
+        "monday": { "open": "09:00", "close": "18:00", "closed": false },
+        "tuesday": { "open": "09:00", "close": "18:00", "closed": false },
+        "wednesday": { "open": "09:00", "close": "18:00", "closed": false },
+        "thursday": { "open": "09:00", "close": "18:00", "closed": false },
+        "friday": { "open": "09:00", "close": "18:00", "closed": false },
+        "saturday": { "open": "10:00", "close": "15:00", "closed": false }
+    }
 
     try {
         await prisma.business.create({
@@ -19,7 +44,8 @@ export async function createBusiness(req, res){
                 name,
                 address,
                 phone,
-                email
+                email,
+                businessHours: businessHours || defaultBusinessHours,
             }
         })
         return res.status(201).json({message: "Business created successfully"})
@@ -44,15 +70,6 @@ export async function getBusiness(req, res){
             },include: {
                 users: {
                     where: { deletedAt: null }
-                },
-                clients: {
-                    where: { deletedAt: null },
-                    include: {
-                        client: true,
-                        notes: {
-                            where: { deletedAt: null }
-                        }
-                    }
                 },
                 services: {
                     where: { isActive: true },

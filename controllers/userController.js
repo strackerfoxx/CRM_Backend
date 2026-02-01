@@ -6,6 +6,10 @@ import bcrypt from "bcrypt";
 import { changingBusinessState } from '../middlewares/handleBusiness.js';
 import login from '../middlewares/login.js';
 
+// 
+// Ahora tenemos que agregar el UserSchedule en el createUser controller
+// 
+
 export async function createUser(req, res){
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -17,8 +21,14 @@ export async function createUser(req, res){
     const salt = await bcrypt.genSalt(10);
     const passwordHashed = await bcrypt.hash(password, salt);
 
+    const business = await prisma.business.findUnique({
+        where: { id: businessId, deletedAt: null }
+    })
+
+    const businessHours = business.businessHours;
+
     try {
-        await prisma.user.create({
+        const user = await prisma.user.create({
             data:{
                 name,
                 email,
@@ -27,12 +37,28 @@ export async function createUser(req, res){
                 businessId
             }
         })
+
+        for (const day of Object.keys(business.businessHours)) {
+            await prisma.userSchedule.create({
+                data: {
+                    dayOfWeek: day,
+                    startTime: businessHours[day].open,
+                    endTime: businessHours[day].close,
+                    userId: user.id
+                }
+            })
+        }
         return res.status(201).json({ msg: "User created successfully" })
     } catch (error) {
         if (error.code === "P2002") {
             return res.status(409).json({ msg: "User already exists" })
         }
-        return res.status(500).json(error)
+        console.error(error)
+        return res.status(500).json({
+            message: error.message,
+            meta: error.meta,
+            stack: error.stack
+        })
     }
 }
 

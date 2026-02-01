@@ -184,6 +184,8 @@ model Appointment {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([businessId, date, status])
 }
 
 /**
@@ -212,6 +214,8 @@ model Service {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([businessId])
 }
 
 model AppointmentService {
@@ -230,6 +234,8 @@ model AppointmentService {
   updatedAt DateTime @updatedAt
 
   @@unique([appointmentId, serviceId])
+  @@index([appointmentId])
+  @@index([userId])
 }
 
 /**

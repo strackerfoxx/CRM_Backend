@@ -86,6 +86,7 @@ export async function getAvailableDates(req, res) {
 
     for (const user of compatibleUsers) {
       const schedule = user.schedules.find(s => s.dayOfWeek === weekday)
+      console.log(user)
       if (!schedule) continue
       
       const open = parseHourToMinutes(schedule.startTime)
@@ -341,7 +342,8 @@ export async function getAppointmentById(req, res) {
             }, include: {
                 services: {
                     include: {
-                        service: true
+                        service: true,
+                        user: { select: { name: true } }
                     }
                 },
                 businessClient: {
@@ -356,9 +358,6 @@ export async function getAppointmentById(req, res) {
                         }
                     }
                 },
-                user: {
-                    select: { name: true }
-                }
             }
         })
         return res.status(200).json({ appointment })

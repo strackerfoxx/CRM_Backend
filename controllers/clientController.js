@@ -183,6 +183,9 @@ export async function getClients(req, res) {
             where: {
                 businessId, 
                 deletedAt: null
+            },
+            include: {
+                client: true
             }
         })
         return res.status(200).json({clients})

@@ -90,6 +90,34 @@ export async function calculateAvailableSlots({
     userId: a.userId
   }))
 
+  const servicesWithUser = services.filter(s => s.userId)
+
+  if (servicesWithUser.length) {
+    const relations = await prisma.userService.findMany({
+      where: {
+        userId: { in: servicesWithUser.map(s => s.userId) },
+        serviceId: { in: servicesWithUser.map(s => s.serviceId) }
+      }
+    })
+
+    const validPairs = new Set(
+      relations.map(r => `${r.userId}-${r.serviceId}`)
+    )
+
+    let invalid = false
+    
+    for (const { userId, serviceId } of servicesWithUser) {
+      if (!validPairs.has(`${userId}-${serviceId}`)) {
+        invalid = true
+        break
+      }
+    }
+
+    if (invalid) {
+      return []
+    }
+  }
+
   // 5 Cache users per service
   const usersByService = {}
 
