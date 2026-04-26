@@ -8,9 +8,11 @@ import {
     getAppointmentById, 
     updateAppointment, 
     deleteAppointment,
+    getClientAppointments,
 
     getAvailableDates,
-    getAvailableSlots
+    getAvailableSlots,
+    getAppointmentsParams,
 } from "../controllers/appointmentController.js"
 
 import { auth } from "../middlewares/auth.js"
@@ -22,9 +24,14 @@ const appointmentValidation = [
 ]
 
 router.post("/create", appointmentValidation, appointmentAuth, createAppointment)
-router.get("/get-all", auth, getAppointments)
-router.get("/get-by-id", appointmentAuth, getAppointmentById)
+
+router.get("/get-appointments", auth, getAppointments)
+router.get("/get-appointments-by-id", appointmentAuth, getAppointmentById)
+router.get("/get-appointments-by-client-id", appointmentAuth, getClientAppointments)
+router.get("/get-appointments-by-params", appointmentAuth, getAppointmentsParams)
+
 router.put("/update", body('date').notEmpty().withMessage('The date is required'), updateAppointment)
+ 
 router.delete("/delete", appointmentAuth, deleteAppointment)
 
 

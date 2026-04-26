@@ -198,6 +198,69 @@ export async function getClients(req, res) {
 
 }
 
+export async function getClientParams(req, res) {
+    const searchParams = req.query
+
+    const page = Number(searchParams.page) || 1
+    const limit = Number(searchParams.limit) || 20
+    const search = searchParams.search || ""
+    const date = searchParams.date || null
+
+    const { businessId } = req.user
+    
+    const where = {
+        businessId,
+        deletedAt: null,
+        client: {
+                OR:[
+                {   name: {
+                        contains: search,
+                        mode: "insensitive"
+                    }
+                },
+                {
+                    phone: {
+                        contains: search,
+                        mode: "insensitive"
+                    }
+                },
+                {
+                    email: {
+                        contains: search,
+                        mode: "insensitive"
+                    }
+                }
+            ]
+            },
+        
+    }
+
+    try {
+        const [clients, total] = await Promise.all([
+            prisma.businessClient.findMany({
+                where,
+                include: {
+                    client: true
+                },
+                orderBy: { createdAt: "desc" },
+                skip: (page - 1) * limit,
+                take: limit
+            }),
+
+            prisma.businessClient.count({ where })
+        ])
+        const totalPages = Math.ceil(total / limit)
+        return res.status(200).json({clients, total, totalPages, currentPage: page})
+    } catch (error) {
+            return res.status(500).json({
+            message: error.message,
+            meta: error.meta,
+            stack: error.stack
+        })
+    }
+    
+}
+
 export async function getClientById(req, res) {
     const { id } = req.query
     try {
@@ -205,6 +268,11 @@ export async function getClientById(req, res) {
             where: {
                 id, 
                 deletedAt: null
+            },
+            include: {
+                client: true,
+                notes: true,
+                appointments: true
             }
         })
         return res.status(200).json({client})

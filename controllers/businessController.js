@@ -48,7 +48,7 @@ export async function createBusiness(req, res){
                 businessHours: businessHours || defaultBusinessHours,
             }
         })
-        return res.status(201).json({message: "Business created successfully"})
+        return res.status(201).json({msg: "Business created successfully"})
     } catch (error) {
         if (error.code === "P2002") {
             return res.status(409).json({ msg: "Business already exists" })

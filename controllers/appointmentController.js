@@ -86,7 +86,6 @@ export async function getAvailableDates(req, res) {
 
     for (const user of compatibleUsers) {
       const schedule = user.schedules.find(s => s.dayOfWeek === weekday)
-      console.log(user)
       if (!schedule) continue
       
       const open = parseHourToMinutes(schedule.startTime)
@@ -201,9 +200,11 @@ export async function createAppointment(req, res) {
      */
     let currentMinutes = parseHourToMinutes(startTime)
     const timeline = []
+    let price = 0
 
     for (const s of services) {
       const service = dbServices.find(d => d.id === s.serviceId)
+      price += service.price || 0
       const duration =
         service.durationMin + (service.cleaningTimeMin || 0)
 
@@ -219,6 +220,25 @@ export async function createAppointment(req, res) {
 
     const endTime = formatMinutes(currentMinutes)
     const totalDuration = currentMinutes - parseHourToMinutes(startTime)
+
+    const appointmentDate = new Date(`${date}T00:00:00`)
+
+    const duplicatedAppointment = await prisma.appointment.findFirst({
+      where: {
+        businessId,
+        businessClientId,
+        date: appointmentDate,
+        startTime,
+        endTime,
+        status: { not: "CANCELED" }
+      }
+    })
+
+    if (duplicatedAppointment) {
+      return res.status(409).json({
+        msg: "A duplicated appointment already exists for the same date and time"
+      })
+    }
 
     /**
      * 3 Revalidar disponibilidad POR USER
@@ -261,9 +281,10 @@ export async function createAppointment(req, res) {
         data: {
           businessId,
           businessClientId,
-          date: new Date(`${date}T00:00:00`),
+          date: appointmentDate,
           startTime,
           endTime,
+          amount: price,
           startTimeMinutes: parseHourToMinutes(startTime),
           endTimeMinutes: currentMinutes,
           durationMin: totalDuration,
@@ -295,40 +316,199 @@ export async function createAppointment(req, res) {
 
 export async function getAppointments(req, res) {
     const { businessId } = req.user
+    
+    const searchParams = req.query
+
+    const page = Number(searchParams.page) || 1
+    const limit = Number(searchParams.limit) || 20
 
     try {
-        const appointments = await prisma.appointment.findMany({
-            where: {
-                businessId
-            }, include: {
-                services: {
-                    include: {
-                        service: true
-                    }
-                },
-                businessClient: {
-                    select: {
-                        id: true,
-                        client: {
-                            select: {
-                                name: true,
-                                email: true,
-                                phone: true
-                            }
-                        }
-                    }
-                },
-                user: {
-                    select: { name: true }
-                }
-            }
-        })
-        return res.status(200).json({ appointments })
+        const [appointments, total] = await Promise.all([
+          prisma.appointment.findMany({
+              where: {
+              businessId
+          }, 
+          include: {
+                  services: {
+                      include: {
+                          service: true
+                      }
+                  },
+                  businessClient: {
+                      select: {
+                          id: true,
+                          client: {
+                              select: {
+                                  name: true,
+                                  email: true,
+                                  phone: true
+                              }
+                          }
+                      }
+                  },
+                  user: {
+                      select: { name: true }
+                  }
+              },
+
+              orderBy: { createdAt: "desc" },
+              skip: (page - 1) * limit,
+              take: limit
+          }),
+
+          prisma.appointment.count({ where: { businessId } })
+        ])
+
+        const totalPages = Math.ceil(total / limit)
+        return res.status(200).json({appointments, total, totalPages})
     } catch (error) {
         if (error.code === "P2025") {
             return res.status(404).json({ msg: "Appointment not found" })
         }
         return res.status(500).json(error)
+    }
+}
+
+export async function getAppointmentsParams(req, res) {
+    const { businessId } = req.user
+    const searchParams = req.query
+
+    const category = searchParams.category || null
+    const status = searchParams.status || null
+    const service = searchParams.service || null
+    const clientId = searchParams.client || null
+    const search = searchParams.search || null
+
+    const page = Number(searchParams.page) || 1
+    const limit = Number(searchParams.limit) || 20
+
+    let startDate = searchParams.startDate || null
+    let endDate = searchParams.endDate || null
+
+      const where = {
+        businessId,
+        status: status ? status.toUpperCase() : undefined,
+        date: startDate ? 
+        { 
+          gte: new Date(startDate).toISOString(), 
+          lt: new Date(new Date(endDate || startDate).getTime() + 86400000).toISOString() 
+        } 
+        : undefined,
+        businessClient: {
+            id: clientId ? clientId : undefined,
+            client: search ? {
+                OR:[
+                {   name: {
+                        contains: search,
+                        mode: "insensitive"
+                    }
+                },
+                {
+                    phone: {
+                        contains: search,
+                        mode: "insensitive"
+                    }
+                },
+                {
+                    email: {
+                        contains: search,
+                        mode: "insensitive"
+                    }
+                }
+            ]
+            }: undefined,
+        },
+        services: service ? {
+            some: {
+                serviceId: service
+            }
+        } : undefined
+
+      }
+    
+
+    try {
+        const [appointments, total] = await Promise.all([
+            prisma.appointment.findMany({
+                where, 
+                include: {
+                    services: {
+                        include: {
+                            service: true
+                        }
+                    },
+                    businessClient: {
+                    select: {
+                        client: {
+                            select: {
+                                name: true,
+                                phone: true
+                            }
+                        }
+                    }
+                },
+                },
+                orderBy: { date: "asc" },
+                skip: (page - 1) * limit,
+                take: limit
+            }),
+
+            prisma.appointment.count({ where })
+        ])
+
+        const totalPages = Math.ceil(total / limit)
+        return res.status(200).json({appointments, total, totalPages})
+    } catch (error) {
+            return res.status(500).json({
+            message: error.message,
+            meta: error.meta,
+            stack: error.stack
+        })
+    }
+}
+
+export async function getClientAppointments(req, res) {
+    const { businessId } = req.user
+    const searchParams = req.query
+
+
+    const clientId = searchParams.clientId
+
+    const page = Number(searchParams.page) || 1
+    const limit = Number(searchParams.limit) || 20
+
+    const where = {
+        businessId,
+        businessClientId: clientId,
+    }
+
+    try {
+        const [appointments, total] = await Promise.all([
+            prisma.appointment.findMany({
+                where,
+                include: {
+                    services: {
+                        include: {
+                            service: true
+                        }
+                    }
+                },
+                orderBy: { createdAt: "desc" },
+                skip: (page - 1) * limit,
+                take: limit
+            }),
+
+            prisma.appointment.count({ where })
+        ])
+
+        const totalPages = Math.ceil(total / limit)
+        return res.status(200).json({ appointments, total, totalPages })
+    } catch (error) {
+            return res.status(500).json({
+            message: error.message,
+            meta: error.meta,
+            stack: error.stack
+        })
     }
 }
 
@@ -390,10 +570,10 @@ export async function updateAppointment(req, res) {
       !status ||
       !services?.length
     ) {
-      return res.status(400).json({ message: "Missing required fields" })
+      return res.status(400).json({ msg: "Missing required fields" })
     }
 
-    /* 1️⃣ Obtener cita */
+    /* Obtener cita */
     const appointment = await prisma.appointment.findUnique({
       where: { id: appointmentId },
       include: {
@@ -402,20 +582,20 @@ export async function updateAppointment(req, res) {
     })
 
     if (!appointment) {
-      return res.status(404).json({ message: "Appointment not found" })
+      return res.status(404).json({ msg: "Appointment not found" })
     }
 
     if (appointment.businessId !== businessId) {
-      return res.status(403).json({ message: "Invalid business" })
+      return res.status(403).json({ msg: "Invalid business" })
     }
 
     if (appointment.status === "COMPLETED") {
       return res
         .status(409)
-        .json({ message: "Completed appointments cannot be updated" })
+        .json({ msg: "Completed appointments cannot be updated" })
     }
 
-    /* 2️⃣ Validar disponibilidad (EXCLUYENDO esta cita) */
+    /* Validar disponibilidad (EXCLUYENDO esta cita) */
     const calculations = await calculateAvailableSlots({
       date,
       businessId,
@@ -427,11 +607,11 @@ export async function updateAppointment(req, res) {
 
     if (!availableSlots.includes(startTime)) {
       return res.status(409).json({
-        message: "Selected slot is no longer available"
+        msg: "Selected slot is no longer available"
       })
     }
 
-    /* 3️⃣ Obtener servicios reales */
+    /* Obtener servicios reales */
     const serviceIds = services.map(s => s.serviceId)
 
     const dbServices = await prisma.service.findMany({
@@ -442,14 +622,14 @@ export async function updateAppointment(req, res) {
     })
 
     if (dbServices.length !== serviceIds.length) {
-      return res.status(400).json({ message: "Invalid services" })
+      return res.status(400).json({ msg: "Invalid services" })
     }
 
     const serviceMap = Object.fromEntries(
       dbServices.map(s => [s.id, s])
     )
 
-    /* 4️⃣ Calcular nuevos tiempos */
+    /* Calcular nuevos tiempos */
     const startMinutes = parseHourToMinutes(startTime)
 
     let cursor = startMinutes
@@ -483,7 +663,7 @@ export async function updateAppointment(req, res) {
       throw new Error("User not allowed for one or more services")
     }
 
-    /* 5️⃣ Transacción */
+    /* Transacción */
     const updated = await prisma.$transaction(async tx => {
       // borrar services anteriores
       await tx.appointmentService.deleteMany({

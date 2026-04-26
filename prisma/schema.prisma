@@ -7,287 +7,179 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/**
- * ============================
- * BUSINESS
- * ============================
- */
-
 model Business {
-  id      String       @id @default(cuid())
-  name    String
-  address String
-  phone   String
-  email   String       @unique
-  plan    BusinessPlan @default(ADVANCED)
-
-  businessHours       Json  @default("{}")
+  id                  String           @id @default(cuid())
+  name                String
+  address             String
+  email               String           @unique
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  phone               String
+  plan                BusinessPlan     @default(ADVANCED)
+  businessHours       Json             @default("{}")
   specialDays         Json?
-  defaultSlotInterval Int   @default(30)
-
-  deletedAt DateTime?
-
-  users        User[]
-  clients      BusinessClient[]
-  services     Service[]
-  appointments Appointment[]
-  blockedTimes BlockedTime[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  defaultSlotInterval Int              @default(30)
+  deletedAt           DateTime?
+  appointments        Appointment[]
+  blockedTimes        BlockedTime[]
+  clients             BusinessClient[]
+  services            Service[]
+  users               User[]
 }
 
-/**
- * ============================
- * USER (EMPLOYEE / ADMIN)
- * ============================
- */
-
 model User {
-  id       String  @id @default(cuid())
-  name     String
-  phone    String?
-  email    String  @unique
-  password String
-
-  role      UserRole  @default(EMPLOYEE)
-  deletedAt DateTime?
-
-  appointments Appointment[]
-  services     UserService[]
-  schedules    UserSchedule[]
-  blockedTimes BlockedTime[]
-
-  businesses Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  businessId String
-
+  id                  String               @id @default(cuid())
+  name                String
+  email               String               @unique
+  password            String
+  role                UserRole             @default(EMPLOYEE)
+  businessId          String
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
+  phone               String?
+  deletedAt           DateTime?
+  appointments        Appointment[]
   appointmentServices AppointmentService[]
+  blockedTimes        BlockedTime[]
+  businesses          Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  schedules           UserSchedule[]
+  services            UserService[]
 
   @@unique([email, deletedAt])
 }
 
-/**
- * ============================
- * EMPLOYEE SCHEDULE (Bloques)
- * ============================
- */
-
 model UserSchedule {
-  id String @id @default(cuid())
-
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String
-
+  id        String    @id @default(cuid())
+  userId    String
   dayOfWeek WeekDay
-
   startTime String
   endTime   String
-
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
-
-/**
- * ============================
- * BLOCKED TIMES (global o empleado)
- * ============================
- */
 
 model BlockedTime {
-  id    String   @id @default(cuid())
-  date  DateTime
-  start String
-  end   String
-
-  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  date       DateTime
+  start      String
+  end        String
   businessId String
-
-  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  userId     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-/**
- * ============================
- * BUSINESS CLIENT & CLIENT
- * ============================
- */
-
 model BusinessClient {
-  id        String    @id @default(cuid())
-  deletedAt DateTime?
-
-  notes        Note[]
+  id           String        @id @default(cuid())
+  businessId   String
+  clientId     String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  deletedAt    DateTime?
   appointments Appointment[]
-
-  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  businessId String
-
-  client   Client @relation(fields: [clientId], references: [id])
-  clientId String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  client       Client        @relation(fields: [clientId], references: [id])
+  notes        Note[]
 
   @@unique([businessId, clientId])
 }
 
 model Client {
-  id          String  @id @default(cuid())
+  id          String           @id @default(cuid())
   name        String
   email       String?
-  phone       String  @unique
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  phone       String           @unique
+  isConfirmed Boolean          @default(false)
   token       String?
-  isConfirmed Boolean @default(false)
-
-  businesses BusinessClient[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  businesses  BusinessClient[]
 }
 
-/**
- * ============================
- * APPOINTMENTS
- * ============================
- */
-
 model Appointment {
-  id String @id @default(cuid())
-
-  date        DateTime
-  startTime   String
-  endTime     String
-  durationMin Int
-
-  startTimeMinutes Int
-  endTimeMinutes   Int
-
-  status AppointmentStatus @default(SCHEDULED)
-
-  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  businessId String
-
-  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
-  userId String?
-
-  businessClient   BusinessClient @relation(fields: [businessClientId], references: [id], onDelete: Cascade)
+  id               String               @id @default(cuid())
+  date             DateTime
+  status           AppointmentStatus    @default(SCHEDULED)
+  userId           String?
+  businessId       String
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
   businessClientId String
-
-  services AppointmentService[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  durationMin      Int
+  endTime          String
+  startTime        String
+  endTimeMinutes   Int
+  startTimeMinutes Int
+  amount           Int                  @default(0)
+  businessClient   BusinessClient       @relation(fields: [businessClientId], references: [id], onDelete: Cascade)
+  business         Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user             User?                @relation(fields: [userId], references: [id])
+  services         AppointmentService[]
 
   @@index([businessId, date, status])
 }
 
-/**
- * ============================
- * SERVICES
- * ============================
- */
-
 model Service {
-  id              String  @id @default(cuid())
+  id              String               @id @default(cuid())
   name            String
   durationMin     Int
-  cleaningTimeMin Int     @default(0)
   price           Float
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
   description     String?
   imageUrl        String?
+  businessId      String
   category        String?
-
-  isActive Boolean @default(true)
-
-  appointments AppointmentService[]
-  users        UserService[]
-
-  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  businessId String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  cleaningTimeMin Int                  @default(0)
+  isActive        Boolean              @default(true)
+  appointments    AppointmentService[]
+  business        Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  users           UserService[]
 
   @@index([businessId])
 }
 
 model AppointmentService {
-  id String @id @default(cuid())
-
-  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  id            String      @id @default(cuid())
   appointmentId String
-
-  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  serviceId String
-
-  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
-  userId String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  serviceId     String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  userId        String?
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  service       Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  user          User?       @relation(fields: [userId], references: [id])
 
   @@unique([appointmentId, serviceId])
   @@index([appointmentId])
   @@index([userId])
 }
 
-/**
- * ============================
- * USER ↔ SERVICE
- * ============================
- */
-
 model UserService {
-  id String @id @default(cuid())
-
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String
-
-  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  userId    String
   serviceId String
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, serviceId])
 }
 
-/**
- * ============================
- * NOTES
- * ============================
- */
-
 model Note {
-  id        String    @id @default(cuid())
-  content   String
-  deletedAt DateTime?
-
+  id               String         @id @default(cuid())
+  content          String
+  createdAt        DateTime       @default(now())
   businessClientId String
+  updatedAt        DateTime       @updatedAt
+  deletedAt        DateTime?
   client           BusinessClient @relation(fields: [businessClientId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }
-
-/**
- * ============================
- * CATEGORIES
- * ============================
- */
-
-/**
- * ============================
- * ENUMS
- * ============================
- */
 
 enum WeekDay {
   sunday
@@ -312,7 +204,7 @@ enum UserRole {
 
 enum AppointmentStatus {
   SCHEDULED
-  CONFIRMED
   COMPLETED
   CANCELED
+  CONFIRMED
 }

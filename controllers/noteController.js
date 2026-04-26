@@ -17,10 +17,10 @@ export async function createNote(req, res) {
 }
 
 export async function getNotes(req, res) {
-    const { businessClientId } = req.query
+    const { clientId } = req.query
     try {
         const notes = await prisma.note.findMany({
-            where: { businessClientId, deletedAt: null }
+            where: { businessClientId: clientId, deletedAt: null }
         })
         return res.status(200).json({ notes })
     } catch (error) {
