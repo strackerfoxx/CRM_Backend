@@ -5,7 +5,7 @@ const prisma = new PrismaClient()
 
 export async function createService(req, res) {
     const { businessId } = req.user
-    const { name, durationMin, price, description, users } = req.body
+    const { name, durationMin, price, description, users, cleaningTimeMin = 0 } = req.body
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -19,7 +19,8 @@ export async function createService(req, res) {
                 durationMin,
                 price,
                 description,
-                businessId
+                businessId,
+                cleaningTimeMin
             }
         })
         if(users && users.length > 0){
@@ -35,7 +36,7 @@ export async function createService(req, res) {
             return res.status(201).json({ msg: "Users not provided" })
         }
 
-        return res.status(201).json({ msg: "Service created successfuly", service })
+        return res.status(201).json({ service, msg: "Service created successfuly", service })
     } catch (error) {
         if (error.code === "P2002") {
             return res.status(409).json({ msg: "Client already exists" })
@@ -69,11 +70,24 @@ export async function getServices(req, res) {
 export async function getServiceById(req, res) {
     const { businessId } = req.user
     try {
-        const service = await prisma.service.findMany({
+        const service = await prisma.service.findUnique({
             where: { 
                 businessId, 
                 id: req.query.id, 
                 isActive: true
+            },
+            include: {
+                users: {
+                    select: {
+                        user: {
+                            select: {
+                                id: true,
+                                name: true,
+                                email: true
+                            }
+                        }
+                    }
+                }
             }
         })
         return res.status(200).json({ service })
@@ -87,7 +101,7 @@ export async function getServiceById(req, res) {
 
 export async function updateService(req, res) {
     const { businessId } = req.user
-    const { name, durationMin, price, description, serviceId } = req.body
+    const { name, durationMin, price, description, serviceId, cleaningTimeMin = 0 } = req.body
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -102,10 +116,11 @@ export async function updateService(req, res) {
                 durationMin,
                 price,
                 description,
-                businessId
+                businessId,
+                cleaningTimeMin
             }
         })
-        return res.status(201).json({ msg: "Service created successfuly", service })
+        return res.status(201).json({ msg: "Service updated successfuly", service })
     } catch (error) {
         if (error.code === "P2005") {
             return res.status(409).json({ msg: "Client doesnt exists" })
