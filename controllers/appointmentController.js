@@ -189,6 +189,9 @@ export async function createAppointment(req, res) {
         id: { in: serviceIds },
         businessId,
         isActive: true
+      },
+      include: {
+        users: true
       }
     })
     if (dbServices.length !== serviceIds.length) {
@@ -618,6 +621,9 @@ export async function updateAppointment(req, res) {
       where: {
         id: { in: serviceIds },
         businessId
+      },
+      include: {
+        users: true
       }
     })
 
