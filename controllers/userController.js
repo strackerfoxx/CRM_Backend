@@ -38,16 +38,16 @@ export async function createUser(req, res){
             }
         })
 
-        for (const day of Object.keys(business.businessHours)) {
-            await prisma.userSchedule.create({
-                data: {
-                    dayOfWeek: day,
-                    startTime: businessHours[day].open,
-                    endTime: businessHours[day].close,
-                    userId: user.id
-                }
-            })
-        }
+        const userSchedules = Object.keys(business.businessHours).map(day => ({
+            dayOfWeek: day,
+            startTime: businessHours[day].open,
+            endTime: businessHours[day].close,
+            userId: user.id
+        }));
+
+        await prisma.userSchedule.createMany({
+            data: userSchedules
+        });
         return res.status(201).json({ msg: "User created successfully" })
     } catch (error) {
         if (error.code === "P2002") {
