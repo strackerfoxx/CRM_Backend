@@ -87,7 +87,7 @@ export async function getAvailableDates(req, res) {
     for (const user of compatibleUsers) {
       const schedule = user.schedules.find(s => s.dayOfWeek === weekday)
       if (!schedule) continue
-      
+
       const open = parseHourToMinutes(schedule.startTime)
       const close = parseHourToMinutes(schedule.endTime)
       if (isNaN(open) || isNaN(close)) continue
@@ -251,7 +251,7 @@ export async function createAppointment(req, res) {
     })
     const availableSlots = calculations.slots
     const resolvedServicesForSlot = await calculations.resolveServicesForSlot(startTime)
-    
+
     for (const block of timeline) {
       const slotStart = formatMinutes(block.start)
 
@@ -316,7 +316,7 @@ export async function createAppointment(req, res) {
 
 export async function getAppointments(req, res) {
     const { businessId } = req.user
-    
+
     const searchParams = req.query
 
     const page = Number(searchParams.page) || 1
@@ -327,7 +327,7 @@ export async function getAppointments(req, res) {
           prisma.appointment.findMany({
               where: {
               businessId
-          }, 
+          },
           include: {
                   services: {
                       include: {
@@ -388,11 +388,11 @@ export async function getAppointmentsParams(req, res) {
       const where = {
         businessId,
         status: status ? status.toUpperCase() : undefined,
-        date: startDate ? 
-        { 
-          gte: new Date(startDate).toISOString(), 
-          lt: new Date(new Date(endDate || startDate).getTime() + 86400000).toISOString() 
-        } 
+        date: startDate ?
+        {
+          gte: new Date(startDate).toISOString(),
+          lt: new Date(new Date(endDate || startDate).getTime() + 86400000).toISOString()
+        }
         : undefined,
         businessClient: {
             id: clientId ? clientId : undefined,
@@ -425,12 +425,12 @@ export async function getAppointmentsParams(req, res) {
         } : undefined
 
       }
-    
+
 
     try {
         const [appointments, total] = await Promise.all([
             prisma.appointment.findMany({
-                where, 
+                where,
                 include: {
                     services: {
                         include: {
@@ -514,7 +514,8 @@ export async function getClientAppointments(req, res) {
 
 export async function getAppointmentById(req, res) {
     const { id } = req.query
-    
+    const businessId = req.user?.businessId || req.client?.businessId
+
     try {
         const appointment = await prisma.appointment.findUnique({
             where: {
@@ -540,6 +541,11 @@ export async function getAppointmentById(req, res) {
                 },
             }
         })
+
+        if (!appointment || appointment.businessId !== businessId) {
+            return res.status(404).json({ msg: "Appointment not found" })
+        }
+
         return res.status(200).json({ appointment })
     } catch (error) {
         if (error.code === "P2025") {
@@ -712,12 +718,18 @@ export async function updateAppointment(req, res) {
 
 export async function deleteAppointment(req, res) {
     const { id } = req.body
+    const businessId = req.user?.businessId || req.client?.businessId
+
     try {
         const appointment = await prisma.appointment.findUnique({
-            where: {id}
+            where: { id }
         })
 
-        if(appointment.status === "SCHEDULED"){
+        if (!appointment || appointment.businessId !== businessId) {
+            return res.status(404).json({ msg: "Appointment not found" })
+        }
+
+        if (appointment.status === "SCHEDULED") {
             await prisma.appointment.update({
                 where: { id },
                 data: {
