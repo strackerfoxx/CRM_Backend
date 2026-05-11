@@ -52,7 +52,19 @@ export async function getServices(req, res) {
             where: { 
                 businessId, 
                 isActive: true
-            }
+            },
+            include: {
+                users: {
+                    select: {
+                        user: {
+                            select: {
+                                id: true,
+                                name: true,
+                                }
+                            }
+                        }
+                    }
+                }
         })
         return res.status(200).json({ services })
     } catch (error) {
