@@ -2,17 +2,18 @@ import express from "express";
 const router = express.Router();
 import { body } from "express-validator";
 
-import { 
-    createAppointment, 
-    getAppointments, 
-    getAppointmentById, 
-    updateAppointment, 
+import {
+    createAppointment,
+    getAppointments,
+    getAppointmentById,
+    updateAppointment,
     deleteAppointment,
     getClientAppointments,
 
     getAvailableDates,
     getAvailableSlots,
     getAppointmentsParams,
+    getCalendarMetrics,
 } from "../controllers/appointmentController.js"
 
 import { auth } from "../middlewares/auth.js"
@@ -31,7 +32,7 @@ router.get("/get-appointments-by-client-id", appointmentAuth, getClientAppointme
 router.get("/get-appointments-by-params", appointmentAuth, getAppointmentsParams)
 
 router.put("/update", body('date').notEmpty().withMessage('The date is required'), updateAppointment)
- 
+
 router.delete("/delete", appointmentAuth, deleteAppointment)
 
 
@@ -41,5 +42,10 @@ router.delete("/delete", appointmentAuth, deleteAppointment)
 router.post("/availability", appointmentAuth, getAvailableDates)
 
 router.post("/availability/slots", appointmentAuth, getAvailableSlots)
+
+router.post("/calendar-metrics", [
+    body('startDate').notEmpty().withMessage('startDate is required'),
+    body('endDate').notEmpty().withMessage('endDate is required')
+], auth, getCalendarMetrics)
 
 export default router;
