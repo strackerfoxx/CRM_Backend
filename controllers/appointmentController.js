@@ -745,3 +745,74 @@ export async function deleteAppointment(req, res) {
         return res.status(500).json(error)
     }
 }
+
+export async function getCalendarMetrics(req, res) {
+  const { businessId } = req.user;
+  const { startDate, endDate } = req.body;
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: "startDate and endDate are required" });
+  }
+
+  try {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        businessId,
+        date: {
+          gte: start,
+          lte: end,
+        },
+        status: {
+          not: 'CANCELED',
+        },
+      },
+      select: {
+        date: true,
+      },
+    });
+
+    const totalAppointments = appointments.length;
+    const dailyCounts = {};
+
+    appointments.forEach((appointment) => {
+      // Formato YYYY-MM-DD
+      const dateStr = appointment.date.toISOString().split('T')[0];
+      if (!dailyCounts[dateStr]) {
+        dailyCounts[dateStr] = 0;
+      }
+      dailyCounts[dateStr]++;
+    });
+
+    const dailyMetrics = Object.keys(dailyCounts).map((date) => {
+      const count = dailyCounts[date];
+      const percentage = totalAppointments > 0 ? (count / totalAppointments) * 100 : 0;
+
+      let color = 'ligero';
+      if (percentage > 85) {
+        color = 'saturado';
+      } else if (percentage > 60) {
+        color = 'alto';
+      } else if (percentage > 30) {
+        color = 'medio';
+      }
+
+      return {
+        date,
+        count,
+        color,
+      };
+    });
+
+    return res.status(200).json({
+      totalAppointments,
+      dailyMetrics,
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}

@@ -22,7 +22,7 @@
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "express-validator": "^7.3.2",
-    "jsonwebtoken": "^9.0.2",
+    "jsonwebtoken": "^9.0.3",
     "twilio": "^5.9.0"
   },
   "devDependencies": {
