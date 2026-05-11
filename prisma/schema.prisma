@@ -22,9 +22,23 @@ model Business {
   deletedAt           DateTime?
   appointments        Appointment[]
   blockedTimes        BlockedTime[]
+  categories          Category[]
   clients             BusinessClient[]
   services            Service[]
   users               User[]
+}
+
+model Category {
+  id         String   @id @default(cuid())
+  name       String
+  businessId String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  services   Service[]
+
+  @@index([businessId])
 }
 
 model User {
@@ -133,11 +147,12 @@ model Service {
   description     String?
   imageUrl        String?
   businessId      String
-  category        String?
+  categoryId      String?
   cleaningTimeMin Int                  @default(0)
   isActive        Boolean              @default(true)
   appointments    AppointmentService[]
   business        Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category        Category?            @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   users           UserService[]
 
   @@index([businessId])
