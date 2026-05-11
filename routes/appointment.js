@@ -14,6 +14,7 @@ import {
     getAvailableSlots,
     getAppointmentsParams,
     getCalendarMetrics,
+    getDayMetrics,
 } from "../controllers/appointmentController.js"
 
 import { auth } from "../middlewares/auth.js"
@@ -47,5 +48,9 @@ router.post("/calendar-metrics", [
     body('startDate').notEmpty().withMessage('startDate is required'),
     body('endDate').notEmpty().withMessage('endDate is required')
 ], auth, getCalendarMetrics)
+
+router.post("/day-metrics", [
+    body('date').notEmpty().withMessage('date is required')
+], auth, getDayMetrics)
 
 export default router;
