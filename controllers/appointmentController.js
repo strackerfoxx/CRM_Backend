@@ -87,7 +87,7 @@ export async function getAvailableDates(req, res) {
     for (const user of compatibleUsers) {
       const schedule = user.schedules.find(s => s.dayOfWeek === weekday)
       if (!schedule) continue
-      
+
       const open = parseHourToMinutes(schedule.startTime)
       const close = parseHourToMinutes(schedule.endTime)
       if (isNaN(open) || isNaN(close)) continue
@@ -254,7 +254,7 @@ export async function createAppointment(req, res) {
     })
     const availableSlots = calculations.slots
     const resolvedServicesForSlot = await calculations.resolveServicesForSlot(startTime)
-    
+
     for (const block of timeline) {
       const slotStart = formatMinutes(block.start)
 
@@ -319,7 +319,7 @@ export async function createAppointment(req, res) {
 
 export async function getAppointments(req, res) {
     const { businessId } = req.user
-    
+
     const searchParams = req.query
 
     const page = Number(searchParams.page) || 1
@@ -330,7 +330,7 @@ export async function getAppointments(req, res) {
           prisma.appointment.findMany({
               where: {
               businessId
-          }, 
+          },
           include: {
                   services: {
                       include: {
@@ -391,11 +391,11 @@ export async function getAppointmentsParams(req, res) {
       const where = {
         businessId,
         status: status ? status.toUpperCase() : undefined,
-        date: startDate ? 
-        { 
-          gte: new Date(startDate).toISOString(), 
-          lt: new Date(new Date(endDate || startDate).getTime() + 86400000).toISOString() 
-        } 
+        date: startDate ?
+        {
+          gte: new Date(startDate).toISOString(),
+          lt: new Date(new Date(endDate || startDate).getTime() + 86400000).toISOString()
+        }
         : undefined,
         businessClient: {
             id: clientId ? clientId : undefined,
@@ -428,12 +428,12 @@ export async function getAppointmentsParams(req, res) {
         } : undefined
 
       }
-    
+
 
     try {
         const [appointments, total] = await Promise.all([
             prisma.appointment.findMany({
-                where, 
+                where,
                 include: {
                     services: {
                         include: {
@@ -517,7 +517,7 @@ export async function getClientAppointments(req, res) {
 
 export async function getAppointmentById(req, res) {
     const { id } = req.query
-    
+
     try {
         const appointment = await prisma.appointment.findUnique({
             where: {
@@ -811,6 +811,195 @@ export async function getCalendarMetrics(req, res) {
       dailyMetrics,
     });
 
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+export async function getDayMetrics(req, res) {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  const { businessId } = req.user;
+  const { date } = req.body;
+
+  try {
+    const targetDate = new Date(date);
+    if (isNaN(targetDate.getTime())) {
+      return res.status(400).json({ error: "Invalid date format" });
+    }
+
+    const startOfDay = new Date(targetDate);
+    startOfDay.setUTCHours(0, 0, 0, 0);
+
+    const endOfDay = new Date(targetDate);
+    endOfDay.setUTCHours(23, 59, 59, 999);
+
+    const weekday = orderedDays[targetDate.getDay()];
+
+    const [business, appointments, blockedTimes] = await Promise.all([
+      prisma.business.findUnique({
+        where: { id: businessId },
+        select: { businessHours: true },
+      }),
+      prisma.appointment.findMany({
+        where: {
+          businessId,
+          date: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+        },
+        include: {
+          businessClient: {
+            include: {
+              client: {
+                select: { name: true },
+              },
+            },
+          },
+          user: {
+            select: { name: true, id: true },
+          },
+          services: {
+            include: {
+              service: { select: { durationMin: true } },
+              user: { select: { name: true, id: true } }
+            }
+          }
+        },
+        orderBy: {
+          startTimeMinutes: 'asc',
+        },
+      }),
+      prisma.blockedTime.findMany({
+        where: {
+          businessId,
+          date: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+        },
+      }),
+    ]);
+
+    if (!business) {
+      return res.status(404).json({ error: "Business not found" });
+    }
+
+    // Default business hours structure from previous code
+    const businessHours = business.businessHours || {};
+    const dayHours = businessHours[weekday];
+
+    let totalBusinessMinutes = 0;
+    let businessOpenMinutes = 0;
+    let businessCloseMinutes = 0;
+
+    if (dayHours && !dayHours.closed) {
+      businessOpenMinutes = parseHourToMinutes(dayHours.open);
+      businessCloseMinutes = parseHourToMinutes(dayHours.close);
+      if (!isNaN(businessOpenMinutes) && !isNaN(businessCloseMinutes)) {
+        totalBusinessMinutes = Math.max(0, businessCloseMinutes - businessOpenMinutes);
+      }
+    }
+
+    let totalRevenue = 0;
+    const occupancyByEmployee = {};
+    const mappedAppointments = [];
+    const appointmentIntervals = [];
+
+    for (const app of appointments) {
+      // Map appointment format
+      const clientName = app.businessClient?.client?.name || "Unknown";
+
+      let employeeNamesSet = new Set();
+      if (app.user?.name) employeeNamesSet.add(app.user.name);
+      if (app.services && app.services.length > 0) {
+         app.services.forEach(s => {
+             if (s.user?.name) employeeNamesSet.add(s.user.name);
+         });
+      }
+      const employeeName = Array.from(employeeNamesSet).join(", ") || "No assigned employee";
+
+      mappedAppointments.push({
+        startTime: app.startTime,
+        endTime: app.endTime,
+        status: app.status,
+        clientName,
+        employeeName,
+      });
+
+      // Ignore CANCELED appointments for revenue and occupancy
+      if (app.status !== 'CANCELED') {
+        totalRevenue += app.amount || 0;
+
+        if (app.services && app.services.length > 0) {
+            app.services.forEach(s => {
+                if (s.user?.name) {
+                    const empName = s.user.name;
+                    if (!occupancyByEmployee[empName]) occupancyByEmployee[empName] = 0;
+                    occupancyByEmployee[empName] += s.service?.durationMin || 0;
+                }
+            });
+        } else if (app.user?.name) {
+            const duration = app.durationMin || (app.endTimeMinutes - app.startTimeMinutes);
+            if (!occupancyByEmployee[app.user.name]) occupancyByEmployee[app.user.name] = 0;
+            occupancyByEmployee[app.user.name] += duration;
+        }
+
+        appointmentIntervals.push({
+          start: app.startTimeMinutes,
+          end: app.endTimeMinutes,
+        });
+      }
+    }
+
+    // Include blocked times in intervals if they consume schedule capacity
+    for (const blocked of blockedTimes) {
+      appointmentIntervals.push({
+        start: parseHourToMinutes(blocked.start),
+        end: parseHourToMinutes(blocked.end),
+      });
+    }
+
+    // Merge overlapping intervals to calculate occupied minutes
+    appointmentIntervals.sort((a, b) => a.start - b.start);
+    const mergedIntervals = [];
+
+    for (const interval of appointmentIntervals) {
+      if (mergedIntervals.length === 0) {
+        mergedIntervals.push(interval);
+      } else {
+        const last = mergedIntervals[mergedIntervals.length - 1];
+        if (interval.start <= last.end) {
+          last.end = Math.max(last.end, interval.end);
+        } else {
+          mergedIntervals.push(interval);
+        }
+      }
+    }
+
+    let totalOccupiedMinutes = 0;
+    for (const interval of mergedIntervals) {
+      // We only count occupied time that falls within the business hours
+      const overlapStart = Math.max(businessOpenMinutes, interval.start);
+      const overlapEnd = Math.min(businessCloseMinutes, interval.end);
+      if (overlapEnd > overlapStart) {
+        totalOccupiedMinutes += (overlapEnd - overlapStart);
+      }
+    }
+
+    const deadTimeMinutes = Math.max(0, totalBusinessMinutes - totalOccupiedMinutes);
+
+    return res.status(200).json({
+      appointments: mappedAppointments,
+      revenue: totalRevenue,
+      employeeOccupancy: occupancyByEmployee,
+      deadTime: deadTimeMinutes,
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: "Internal server error" });
