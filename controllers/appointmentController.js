@@ -748,7 +748,7 @@ export async function deleteAppointment(req, res) {
 
 export async function getCalendarMetrics(req, res) {
   const { businessId } = req.user;
-  const { startDate, endDate } = req.body;
+  const { startDate, endDate } = req.query;
 
   if (!startDate || !endDate) {
     return res.status(400).json({ error: "startDate and endDate are required" });
@@ -790,13 +790,13 @@ export async function getCalendarMetrics(req, res) {
       const count = dailyCounts[date];
       const percentage = totalAppointments > 0 ? (count / totalAppointments) * 100 : 0;
 
-      let color = 'ligero';
+      let color = 'blue';
       if (percentage > 85) {
-        color = 'saturado';
+        color = 'red';
       } else if (percentage > 60) {
-        color = 'alto';
+        color = 'yellow';
       } else if (percentage > 30) {
-        color = 'medio';
+        color = 'green';
       }
 
       return {
@@ -824,7 +824,7 @@ export async function getDayMetrics(req, res) {
   }
 
   const { businessId } = req.user;
-  const { date } = req.body;
+  const { date } = req.query;
 
   try {
     const targetDate = new Date(date);

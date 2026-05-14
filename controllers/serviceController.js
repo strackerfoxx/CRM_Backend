@@ -113,31 +113,99 @@ export async function getServiceById(req, res) {
 
 export async function updateService(req, res) {
     const { businessId } = req.user
-    const { name, durationMin, price, description, serviceId, cleaningTimeMin = 0 } = req.body
 
-    const errors = validationResult(req);
+    const {
+        name,
+        durationMin,
+        price,
+        description,
+        serviceId,
+        cleaningTimeMin = 0,
+        users = []
+    } = req.body
+
+    const errors = validationResult(req)
+
     if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
+        return res.status(400).json({
+            errors: errors.array()
+        })
     }
-    
+
     try {
-        const service = await prisma.service.update({
-            where: { id: serviceId, isActive: true },
-            data: {
-                name,
-                durationMin,
-                price,
-                description,
-                businessId,
-                cleaningTimeMin
+
+        const existing = await prisma.userService.findMany({
+            where: {
+                serviceId
+            },
+            select: {
+                userId: true
             }
         })
-        return res.status(201).json({ msg: "Service updated successfuly", service })
+
+        const existingIds = existing.map(x => x.userId)
+
+        const toCreate = users.filter(
+            id => !existingIds.includes(id)
+        )
+
+        const toDelete = existingIds.filter(
+            id => !users.includes(id)
+        )
+
+        const result = await prisma.$transaction(async (tx) => {
+
+            await tx.userService.deleteMany({
+                where: {
+                    serviceId,
+                    userId: {
+                        in: toDelete
+                    }
+                }
+            })
+
+            await tx.userService.createMany({
+                data: toCreate.map(userId => ({
+                    serviceId,
+                    userId
+                })),
+                skipDuplicates: true
+            })
+
+            const service = await tx.service.update({
+                where: {
+                    id: serviceId
+                },
+                data: {
+                    name,
+                    durationMin,
+                    price,
+                    description,
+                    businessId,
+                    cleaningTimeMin,
+                }
+            })
+
+            return service
+        })
+
+        return res.status(200).json({
+            msg: "Service updated successfully",
+            service: result
+        })
+
     } catch (error) {
-        if (error.code === "P2005") {
-            return res.status(409).json({ msg: "Client doesnt exists" })
+
+        if (error.code === "P2025") {
+            return res.status(404).json({
+                msg: "Service not found"
+            })
         }
-        return res.status(500).json(error)
+
+        return res.status(500).json({
+            msg: "Internal server error",
+            error
+        })
     }
 }
 

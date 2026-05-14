@@ -44,13 +44,8 @@ router.post("/availability", appointmentAuth, getAvailableDates)
 
 router.post("/availability/slots", appointmentAuth, getAvailableSlots)
 
-router.post("/calendar-metrics", [
-    body('startDate').notEmpty().withMessage('startDate is required'),
-    body('endDate').notEmpty().withMessage('endDate is required')
-], auth, getCalendarMetrics)
+router.get("/calendar-metrics", auth, getCalendarMetrics)
 
-router.post("/day-metrics", [
-    body('date').notEmpty().withMessage('date is required')
-], auth, getDayMetrics)
+router.get("/day-metrics", auth, getDayMetrics)
 
 export default router;
