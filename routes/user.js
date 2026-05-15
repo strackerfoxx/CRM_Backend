@@ -1,7 +1,7 @@
 import express from "express";
 const router = express.Router();
 import { body } from "express-validator";
-import { createUser, loginUser, getUser, getAllUsers, updateUser, deleteUser } from "../controllers/userController.js";
+import { createUser, loginUser, getUser, getAllUsers, updateUser, deleteUser, getUserSchedule, updateUserSchedule } from "../controllers/userController.js";
 
 import { deepClean } from "../middlewares/deepClean.js";
 import { auth } from "../middlewares/auth.js";
@@ -38,7 +38,7 @@ router.post("/login",
 );
 router.get("/get-user-by-id", auth, getUser)
 router.get("/get-all-users", auth, getAllUsers)
-router.patch("/update-user", 
+router.patch("/update-user",
     deepClean,
     [
         body('name').notEmpty().withMessage('The name is required'),
@@ -47,10 +47,13 @@ router.patch("/update-user",
         .isEmail().withMessage('Email is not valid'),
         body('role').notEmpty().withMessage('The role is required')
     ],
-    auth, 
+    auth,
     updateUser
 )
 
 router.delete("/delete-user", auth, deleteUser)
+
+router.get("/schedule", auth, getUserSchedule);
+router.put("/schedule", auth, deepClean, updateUserSchedule);
 
 export default router;
