@@ -109,7 +109,17 @@ export async function getAllUsers(req, res) {
     }
     try {
         const users = await prisma.user.findMany({
-            where: { deletedAt: null, businessId }
+            where: { deletedAt: null, businessId },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                role: true,
+                phone: true,
+                createdAt: true,
+                updatedAt: true
+            }
         })
         return res.status(200).json(users)
     } catch (error) {

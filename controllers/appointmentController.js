@@ -925,6 +925,7 @@ export async function getDayMetrics(req, res) {
       const employeeName = Array.from(employeeNamesSet).join(", ") || "No assigned employee";
 
       mappedAppointments.push({
+        id: app.id,
         startTime: app.startTime,
         endTime: app.endTime,
         status: app.status,
