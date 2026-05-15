@@ -155,3 +155,100 @@ export async function reActivateBusiness(req, res) {
         return res.status(500).json(error)
     }
 }
+export async function getBusinessHours(req, res) {
+    const { businessId } = req.user;
+
+    try {
+        const business = await prisma.business.findFirst({
+            where: {
+                id: businessId,
+                deletedAt: null
+            },
+            select: {
+                businessHours: true
+            }
+        });
+
+        if (!business) {
+            return res.status(404).json({ msg: "Business not found" });
+        }
+
+        return res.status(200).json(business.businessHours);
+    } catch (error) {
+        return res.status(500).json(error);
+    }
+}
+
+export async function updateBusinessHours(req, res) {
+    const { businessId } = req.user;
+    const { businessHours } = req.body;
+
+    try {
+        const business = await prisma.business.findFirst({
+            where: { id: businessId, deletedAt: null }
+        });
+
+        if (!business) {
+            return res.status(404).json({ msg: "Business not found" });
+        }
+
+        await prisma.business.update({
+            where: { id: businessId },
+            data: {
+                businessHours
+            }
+        });
+        return res.status(200).json({ msg: "Business hours updated successfully" });
+    } catch (error) {
+        return res.status(500).json(error);
+    }
+}
+
+export async function getSpecialDays(req, res) {
+    const { businessId } = req.user;
+
+    try {
+        const business = await prisma.business.findFirst({
+            where: {
+                id: businessId,
+                deletedAt: null
+            },
+            select: {
+                specialDays: true
+            }
+        });
+
+        if (!business) {
+            return res.status(404).json({ msg: "Business not found" });
+        }
+
+        return res.status(200).json(business.specialDays);
+    } catch (error) {
+        return res.status(500).json(error);
+    }
+}
+
+export async function updateSpecialDays(req, res) {
+    const { businessId } = req.user;
+    const { specialDays } = req.body;
+
+    try {
+        const business = await prisma.business.findFirst({
+            where: { id: businessId, deletedAt: null }
+        });
+
+        if (!business) {
+            return res.status(404).json({ msg: "Business not found" });
+        }
+
+        await prisma.business.update({
+            where: { id: businessId },
+            data: {
+                specialDays
+            }
+        });
+        return res.status(200).json({ msg: "Special days updated successfully" });
+    } catch (error) {
+        return res.status(500).json(error);
+    }
+}

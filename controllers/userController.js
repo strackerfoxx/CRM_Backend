@@ -174,3 +174,56 @@ export async function deleteUser(req, res) {
         return res.status(500).json(error)
     }
 }
+export async function getUserSchedule(req, res) {
+    const { id, businessId, role } = req.user;
+    // Assuming if the client wants another user's schedule, they provide it in query. Default to auth user id.
+    const targetUserId = req.query.userId || id;
+
+    try {
+        const user = await prisma.user.findFirst({
+            where: { id: targetUserId, businessId, deletedAt: null }
+        });
+
+        if (!user) {
+            return res.status(404).json({ msg: "User not found or unauthorized access" });
+        }
+
+        const schedules = await prisma.userSchedule.findMany({
+            where: { userId: targetUserId, deletedAt: null },
+            orderBy: { dayOfWeek: 'asc' } // or whatever order is preferred
+        });
+
+        return res.status(200).json(schedules);
+    } catch (error) {
+        return res.status(500).json(error);
+    }
+}
+
+export async function updateUserSchedule(req, res) {
+    const { id: authUserId, businessId, role } = req.user;
+    const { id, dayOfWeek, startTime, endTime } = req.body;
+
+    try {
+        const schedule = await prisma.userSchedule.findFirst({
+            where: { id, deletedAt: null },
+            include: { user: true }
+        });
+
+        if (!schedule || schedule.user.businessId !== businessId) {
+            return res.status(404).json({ msg: "User schedule not found or unauthorized access" });
+        }
+
+        if (role !== 'ADMIN' && schedule.userId !== authUserId) {
+            return res.status(403).json({ msg: "Unauthorized to update this schedule" });
+        }
+
+        await prisma.userSchedule.update({
+            where: { id },
+            data: { dayOfWeek, startTime, endTime }
+        });
+
+        return res.status(200).json({ msg: "User schedule updated successfully" });
+    } catch (error) {
+        return res.status(500).json(error);
+    }
+}

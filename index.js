@@ -8,7 +8,7 @@ import routerClient from "./routes/client.js";
 import routerAppointment from "./routes/appointment.js";
 import routerService from "./routes/service.js";
 import routerNote from "./routes/note.js";
-
+import routerBlockedTime from "./routes/blockedTime.js";
 
 dotenv.config();
 
@@ -22,6 +22,7 @@ app.use("/api/client", routerClient);
 app.use("/api/appointment", routerAppointment);
 app.use("/api/service", routerService);
 app.use("/api/note", routerNote);
+app.use("/api/blocked-time", routerBlockedTime);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {});
