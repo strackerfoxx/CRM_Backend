@@ -1,7 +1,7 @@
 import express from "express";
 const router = express.Router();
 import { body } from "express-validator";
-import { createUser, loginUser, getUser, getAllUsers, updateUser, deleteUser, getUserSchedule, updateUserSchedule } from "../controllers/userController.js";
+import { createUser, loginUser, getUser, getAllUsers, updateUser, deleteUser, getUserSchedule, updateUserSchedule, getUsersParams } from "../controllers/userController.js";
 
 import { deepClean } from "../middlewares/deepClean.js";
 import { auth } from "../middlewares/auth.js";
@@ -38,6 +38,7 @@ router.post("/login",
 );
 router.get("/get-user-by-id", auth, getUser)
 router.get("/get-all-users", auth, getAllUsers)
+router.get("/get-users-by-params", auth, getUsersParams)
 router.patch("/update-user",
     deepClean,
     [
@@ -54,6 +55,6 @@ router.patch("/update-user",
 router.delete("/delete-user", auth, deleteUser)
 
 router.get("/schedule", auth, getUserSchedule);
-router.put("/schedule", auth, deepClean, updateUserSchedule);
+router.put("/update-schedule", auth, deepClean, updateUserSchedule);
 
 export default router;

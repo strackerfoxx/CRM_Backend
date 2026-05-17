@@ -16,7 +16,7 @@ export async function createUser(req, res){
         return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, email, password, role, businessId } = req.body;
+    const { name, email, password, role, businessId, userSchedule } = req.body;
 
     const salt = await bcrypt.genSalt(10);
     const passwordHashed = await bcrypt.hash(password, salt);
@@ -38,16 +38,21 @@ export async function createUser(req, res){
             }
         })
 
-        for (const day of Object.keys(business.businessHours)) {
-            await prisma.userSchedule.create({
-                data: {
-                    dayOfWeek: day,
-                    startTime: businessHours[day].open,
-                    endTime: businessHours[day].close,
-                    userId: user.id
-                }
-            })
+        if(userSchedule.length < 1){
+            for (const day of Object.keys(business.businessHours)) {
+                await prisma.userSchedule.create({
+                    data: {
+                        dayOfWeek: day,
+                        startTime: businessHours[day].open,
+                        endTime: businessHours[day].close,
+                        userId: user.id
+                    }
+                })
+            }
+        }else{
+
         }
+        
         return res.status(201).json({ msg: "User created successfully" })
     } catch (error) {
         if (error.code === "P2002") {
@@ -82,17 +87,31 @@ export async function loginUser(req, res, next){
 }
 
 export async function getUser(req, res) {
-    const { id } = req.user
+    const { id } = req.query
+    const { businessId } = req.user
     try {
-        const user = await prisma.user.findUnique({
-            where: { id, deletedAt: null },
-            include: { 
-                appointments: true,
-                services: true,
+        const user = await prisma.user.findFirst({
+            where: { 
+                id, 
+                deletedAt: null 
+            },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                businessId: true,
+                createdAt: true,
+                updatedAt: true,
+                phone: true,
+
                 schedules: true,
                 blockedTimes: true
             }
         })
+        if(user.businessId !== businessId){
+            return res.status(403).json({ msg: "Access denied" })
+        }
         return res.status(200).json(user)
     } catch (error) {
         if (error.code === "P2025") {
@@ -119,7 +138,8 @@ export async function getAllUsers(req, res) {
                 phone: true,
                 createdAt: true,
                 updatedAt: true
-            }
+            },
+            orderBy: { createdAt: 'asc' }
         })
         return res.status(200).json(users)
     } catch (error) {
@@ -130,9 +150,66 @@ export async function getAllUsers(req, res) {
     }
 }
 
+export async function getUsersParams(req, res) {
+    const searchParams = req.query
+    
+    const page = Number(searchParams.page) || 1
+    const limit = Number(searchParams.limit) || 20
+    const search = searchParams.search || ""
+    const role = req.query.role
+
+    const { businessId } = req.user
+    
+    const where = {
+        businessId,
+        deletedAt: null,
+        role,
+                OR:[
+                {   name: {
+                        contains: search,
+                        mode: "insensitive"
+                    }
+                },
+                {
+                    phone: {
+                        contains: search,
+                        mode: "insensitive"
+                    }
+                },
+                {
+                    email: {
+                        contains: search,
+                        mode: "insensitive"
+                    },
+                },
+            ],
+    }
+
+    try {
+        const [users, total] = await Promise.all([
+            prisma.user.findMany({
+                where,
+                orderBy: { createdAt: "asc" },
+                skip: (page - 1) * limit,
+                take: limit
+            }),
+
+            prisma.user.count({ where })
+        ])
+        const totalPages = Math.ceil(total / limit)
+        return res.status(200).json({users, total})
+    } catch (error) {
+            return res.status(500).json({
+            message: error.message,
+            meta: error.meta,
+            stack: error.stack
+        })
+    }
+}
+
 export async function updateUser(req, res) {
-    const { name, email, role, phone } = req.body
-    const { id, role: userRole } = req.user
+    const { id, name, email, role, phone } = req.body
+    const { role: userRole } = req.user
     if(role !== userRole){
         if(userRole !== 'ADMIN'){
             return res.status(403).json({ msg: "Role change Unauthorized" })

@@ -186,7 +186,8 @@ export async function getClients(req, res) {
             },
             include: {
                 client: true
-            }
+            },
+            orderBy: { createdAt: 'asc' }
         })
         return res.status(200).json({clients})
     } catch (error) {
@@ -231,8 +232,7 @@ export async function getClientParams(req, res) {
                     }
                 }
             ]
-            },
-        
+            }
     }
 
     try {
@@ -242,7 +242,7 @@ export async function getClientParams(req, res) {
                 include: {
                     client: true
                 },
-                orderBy: { createdAt: "desc" },
+                orderBy: { createdAt: "asc" },
                 skip: (page - 1) * limit,
                 take: limit
             }),

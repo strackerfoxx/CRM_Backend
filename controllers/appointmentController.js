@@ -623,7 +623,7 @@ export async function updateAppointment(req, res) {
         businessId
       },
       include: {
-        users: true
+        users: true,
       }
     })
 
