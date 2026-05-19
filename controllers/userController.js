@@ -5,6 +5,7 @@ import bcrypt from "bcrypt";
 
 import { changingBusinessState } from '../middlewares/handleBusiness.js';
 import login from '../middlewares/login.js';
+import { parseHourToMinutes } from '../helpers/availability.js';
 
 // 
 // Ahora tenemos que agregar el UserSchedule en el createUser controller
@@ -25,6 +26,10 @@ export async function createUser(req, res){
         where: { id: businessId, deletedAt: null }
     })
 
+    if (!business) {
+        return res.status(404).json({ msg: "Business not found" })
+    }
+
     const businessHours = business.businessHours;
 
     try {
@@ -38,19 +43,24 @@ export async function createUser(req, res){
             }
         })
 
-        if(userSchedule.length < 1){
-            for (const day of Object.keys(business.businessHours)) {
-                await prisma.userSchedule.create({
-                    data: {
-                        dayOfWeek: day,
-                        startTime: businessHours[day].open,
-                        endTime: businessHours[day].close,
-                        userId: user.id
-                    }
-                })
-            }
-        }else{
+        const scheduleData = Array.isArray(userSchedule) ? userSchedule : [];
 
+        if (scheduleData.length < 1) {
+            const defaultSchedules = Object.keys(businessHours).map((day) => ({
+                dayOfWeek: day,
+                startTime: businessHours[day].open,
+                endTime: businessHours[day].close,
+                userId: user.id
+            }))
+            await prisma.userSchedule.createMany({ data: defaultSchedules })
+        } else {
+            const customSchedules = scheduleData.map((schedule) => ({
+                dayOfWeek: schedule.dayOfWeek,
+                startTime: schedule.startTime,
+                endTime: schedule.endTime,
+                userId: user.id
+            }))
+            await prisma.userSchedule.createMany({ data: customSchedules })
         }
         
         return res.status(201).json({ msg: "User created successfully" })
@@ -271,6 +281,119 @@ export async function getUserSchedule(req, res) {
         });
 
         return res.status(200).json(schedules);
+    } catch (error) {
+        return res.status(500).json(error);
+    }
+}
+
+export async function createUserSchedule(req, res) {
+    const { id: authUserId, businessId, role } = req.user;
+    const { userId, dayOfWeek, startTime, endTime } = req.body;
+
+    try {
+        const user = await prisma.user.findFirst({
+            where: { id: userId, businessId, deletedAt: null }
+        });
+
+        if (!user) {
+            return res.status(404).json({ msg: "User not found or unauthorized access" });
+        }
+
+        if (role !== 'ADMIN' && authUserId !== userId) {
+            return res.status(403).json({ msg: "Unauthorized to create schedule for this user" });
+        }
+
+        // Get business to validate businessHours
+        const business = await prisma.business.findUnique({
+            where: { id: businessId, deletedAt: null }
+        });
+
+        if (!business) {
+            return res.status(404).json({ msg: "Business not found" });
+        }
+
+        const businessHours = business.businessHours;
+        
+        // Validate that dayOfWeek exists in businessHours
+        if (!businessHours[dayOfWeek]) {
+            return res.status(400).json({ msg: "Invalid day of week or business closed on this day" });
+        }
+
+        const businessOpen = parseHourToMinutes(businessHours[dayOfWeek].open);
+        const businessClose = parseHourToMinutes(businessHours[dayOfWeek].close);
+        const scheduleStart = parseHourToMinutes(startTime);
+        const scheduleEnd = parseHourToMinutes(endTime);
+
+        // Validate that times are within business hours
+        if (scheduleStart < businessOpen || scheduleEnd > businessClose) {
+            return res.status(400).json({ 
+                msg: `Schedule must be within business hours (${businessHours[dayOfWeek].open} - ${businessHours[dayOfWeek].close})` 
+            });
+        }
+
+        // Validate that startTime < endTime
+        if (scheduleStart >= scheduleEnd) {
+            return res.status(400).json({ msg: "Start time must be before end time" });
+        }
+
+        // Get all existing schedules for this user on the same day
+        const existingSchedules = await prisma.userSchedule.findMany({
+            where: { userId, dayOfWeek, deletedAt: null }
+        });
+
+        // Check for overlaps
+        const hasOverlap = existingSchedules.some(existingSchedule => {
+            const existingStart = parseHourToMinutes(existingSchedule.startTime);
+            const existingEnd = parseHourToMinutes(existingSchedule.endTime);
+
+            // Two schedules overlap if: start1 < end2 AND end1 > start2
+            return scheduleStart < existingEnd && scheduleEnd > existingStart;
+        });
+
+        if (hasOverlap) {
+            return res.status(409).json({ msg: "Schedule overlaps with an existing schedule" });
+        }
+
+        const schedule = await prisma.userSchedule.create({
+            data: {
+                userId,
+                dayOfWeek,
+                startTime,
+                endTime
+            }
+        });
+
+        return res.status(201).json({ msg: "User schedule created successfully", schedule });
+    } catch (error) {
+        return res.status(500).json(error);
+    }
+}
+
+export async function deleteUserSchedule(req, res) {
+    const { id: authUserId, businessId, role } = req.user;
+    const { id } = req.body;
+
+    try {
+        const schedule = await prisma.userSchedule.findFirst({
+            where: { id, deletedAt: null },
+            include: { user: true }
+        });
+
+        if (!schedule || schedule.user.businessId !== businessId) {
+            return res.status(404).json({ msg: "User schedule not found or unauthorized access" });
+        }
+
+        if (role !== 'ADMIN' && schedule.userId !== authUserId) {
+            return res.status(403).json({ msg: "Unauthorized to delete this schedule" });
+        }
+        console.log(role, schedule.userId, authUserId)
+
+        await prisma.userSchedule.update({
+            where: { id },
+            data: { deletedAt: new Date() }
+        });
+
+        return res.status(200).json({ msg: "User schedule deleted successfully" });
     } catch (error) {
         return res.status(500).json(error);
     }

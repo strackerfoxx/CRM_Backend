@@ -1,7 +1,7 @@
 import express from "express";
 const router = express.Router();
 import { body } from "express-validator";
-import { createUser, loginUser, getUser, getAllUsers, updateUser, deleteUser, getUserSchedule, updateUserSchedule, getUsersParams } from "../controllers/userController.js";
+import { createUser, loginUser, getUser, getAllUsers, updateUser, deleteUser, getUserSchedule, updateUserSchedule, createUserSchedule, deleteUserSchedule, getUsersParams } from "../controllers/userController.js";
 
 import { deepClean } from "../middlewares/deepClean.js";
 import { auth } from "../middlewares/auth.js";
@@ -55,6 +55,27 @@ router.patch("/update-user",
 router.delete("/delete-user", auth, deleteUser)
 
 router.get("/schedule", auth, getUserSchedule);
+router.post(
+    "/create-schedule",
+    auth,
+    deepClean,
+    [
+        body('userId').notEmpty().withMessage('The userId is required'),
+        body('dayOfWeek').notEmpty().withMessage('The dayOfWeek is required'),
+        body('startTime').notEmpty().withMessage('The startTime is required'),
+        body('endTime').notEmpty().withMessage('The endTime is required')
+    ],
+    createUserSchedule
+);
+router.delete(
+    "/delete-schedule",
+    auth,
+    deepClean,
+    [
+        body('id').notEmpty().withMessage('The schedule id is required')
+    ],
+    deleteUserSchedule
+);
 router.put("/update-schedule", auth, deepClean, updateUserSchedule);
 
 export default router;

@@ -255,14 +255,10 @@ export async function createAppointment(req, res) {
     const availableSlots = calculations.slots
     const resolvedServicesForSlot = await calculations.resolveServicesForSlot(startTime)
 
-    for (const block of timeline) {
-      const slotStart = formatMinutes(block.start)
-
-      if (!availableSlots.includes(slotStart)) {
-        return res
-          .status(409)
-          .json({ error: "Schedule not available" })
-      }
+    if (!availableSlots.includes(startTime)) {
+      return res
+        .status(409)
+        .json({ error: "Schedule not available" })
     }
 
     const invalidUserService = services.some(
