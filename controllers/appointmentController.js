@@ -226,20 +226,25 @@ export async function createAppointment(req, res) {
 
     const appointmentDate = new Date(`${date}T00:00:00`)
 
-    const duplicatedAppointment = await prisma.appointment.findFirst({
+    const appointmentDateTime = new Date(`${date}T${startTime}:00`)
+    if (appointmentDateTime < new Date()) {
+      return res.status(400).json({ error: "Cannot schedule an appointment in the past" })
+    }
+
+    const overlappingAppointment = await prisma.appointment.findFirst({
       where: {
         businessId,
         businessClientId,
         date: appointmentDate,
-        startTime,
-        endTime,
-        status: { not: "CANCELED" }
+        status: { not: "CANCELED" },
+        startTimeMinutes: { lt: parseHourToMinutes(endTime) },
+        endTimeMinutes: { gt: parseHourToMinutes(startTime) }
       }
     })
 
-    if (duplicatedAppointment) {
+    if (overlappingAppointment) {
       return res.status(409).json({
-        msg: "A duplicated appointment already exists for the same date and time"
+        msg: "Client already has an appointment during this time"
       })
     }
 
@@ -594,6 +599,15 @@ export async function updateAppointment(req, res) {
         .json({ msg: "Completed appointments cannot be updated" })
     }
 
+    const appointmentDateTime = new Date(`${date}T${startTime}:00`)
+    const existingDateString = appointment.date.toISOString().split('T')[0]
+    if (
+      appointmentDateTime < new Date() &&
+      (date !== existingDateString || startTime !== appointment.startTime)
+    ) {
+      return res.status(400).json({ error: "Cannot schedule an appointment in the past" })
+    }
+
     /* Validar disponibilidad (EXCLUYENDO esta cita) */
     const calculations = await calculateAvailableSlots({
       date,
@@ -663,6 +677,24 @@ export async function updateAppointment(req, res) {
 
     if (invalidUserService) {
       throw new Error("User not allowed for one or more services")
+    }
+
+    const overlappingAppointment = await prisma.appointment.findFirst({
+      where: {
+        businessId,
+        businessClientId,
+        date: new Date(`${date}T00:00:00`),
+        id: { not: appointmentId },
+        status: { not: "CANCELED" },
+        startTimeMinutes: { lt: endMinutes },
+        endTimeMinutes: { gt: startMinutes }
+      }
+    })
+
+    if (overlappingAppointment) {
+      return res.status(409).json({
+        msg: "Client already has an appointment during this time"
+      })
     }
 
     /* Transacción */
