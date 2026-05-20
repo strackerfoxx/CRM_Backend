@@ -234,3 +234,63 @@ export async function deleteService(req, res) {
         })
     }
 }
+export async function getServicesParams(req, res) {
+    const searchParams = req.query
+
+    const page = Number(searchParams.page) || 1
+    const limit = Number(searchParams.limit) || 20
+    const search = searchParams.search || ""
+
+    const { businessId } = req.user
+
+    const where = {
+        businessId,
+        isActive: true,
+        OR:[
+            {   name: {
+                    contains: search,
+                    mode: "insensitive"
+                }
+            },
+            {
+                description: {
+                    contains: search,
+                    mode: "insensitive"
+                }
+            }
+        ],
+    }
+
+    try {
+        const [services, total] = await Promise.all([
+            prisma.service.findMany({
+                where,
+                orderBy: { createdAt: "asc" },
+                skip: (page - 1) * limit,
+                take: limit,
+                include: {
+                    users: {
+                        select: {
+                            user: {
+                                select: {
+                                    id: true,
+                                    name: true,
+                                }
+                            }
+                        }
+                    }
+                }
+            }),
+
+            prisma.service.count({ where })
+        ])
+        const totalPages = Math.ceil(total / limit)
+        return res.status(200).json({services, total})
+    } catch (error) {
+            return res.status(500).json({
+            message: error.message,
+            meta: error.meta,
+            stack: error.stack
+        })
+    }
+}
