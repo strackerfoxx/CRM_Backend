@@ -2,7 +2,7 @@ import express from "express";
 const router = express.Router();
 import { body } from "express-validator";
 
-import { createService, getServices, getServiceById, updateService, deleteService } from "../controllers/serviceController.js";
+import { createService, getServices, getServiceById, updateService, deleteService, getServicesParams } from "../controllers/serviceController.js";
 
 import { deepClean } from "../middlewares/deepClean.js";
 import { auth } from "../middlewares/auth.js"
@@ -19,6 +19,7 @@ const clientValidation = [
 
 router.post("/create", auth, deepClean, clientValidation, createService)
 router.get("/get-services", auth, getServices)
+router.get("/get-services-by-params", auth, getServicesParams)
 router.get("/get-service-by-id", auth, getServiceById)
 router.put("/update", auth, deepClean, clientValidation, updateService)
 router.delete("/delete", auth, deepClean, deleteService)

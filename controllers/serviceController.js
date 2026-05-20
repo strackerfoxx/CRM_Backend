@@ -11,7 +11,7 @@ export async function createService(req, res) {
     if (!errors.isEmpty()) {
         return res.status(400).json({ errors: errors.array() });
     }
-    
+
     try {
         const service = await prisma.service.create({
             data: {
@@ -49,8 +49,8 @@ export async function getServices(req, res) {
     const { businessId } = req.user
     try {
         const services = await prisma.service.findMany({
-            where: { 
-                businessId, 
+            where: {
+                businessId,
                 isActive: true
             },
             include: {
@@ -83,9 +83,9 @@ export async function getServiceById(req, res) {
     const { businessId } = req.user
     try {
         const service = await prisma.service.findUnique({
-            where: { 
-                businessId, 
-                id: req.query.id, 
+            where: {
+                businessId,
+                id: req.query.id,
                 isActive: true
             },
             include: {
@@ -215,7 +215,7 @@ export async function deleteService(req, res) {
     try {
         await prisma.service.update({
             where: {
-                id: serviceId, 
+                id: serviceId,
                 isActive: true
             },
             data: {
@@ -228,6 +228,74 @@ export async function deleteService(req, res) {
             return res.status(409).json({ msg: "Client doesnt exists" })
         }
         return res.status(500).json({
+            message: error.message,
+            meta: error.meta,
+            stack: error.stack
+        })
+    }
+}
+export async function getServicesParams(req, res) {
+    const searchParams = req.query
+
+    const page = Number(searchParams.page) || 1
+    const limit = Number(searchParams.limit) || 20
+    const search = searchParams.search || ""
+    const userId = searchParams.userId
+
+    const { businessId } = req.user
+
+    const where = {
+        businessId,
+        isActive: true,
+        ...(userId && {
+            users: {
+                some: {
+                    userId
+                }
+            }
+        }),
+        OR:[
+            {   name: {
+                    contains: search,
+                    mode: "insensitive"
+                }
+            },
+            {
+                description: {
+                    contains: search,
+                    mode: "insensitive"
+                }
+            }
+        ],
+    }
+
+    try {
+        const [services, total] = await Promise.all([
+            prisma.service.findMany({
+                where,
+                orderBy: { createdAt: "asc" },
+                skip: (page - 1) * limit,
+                take: limit,
+                include: {
+                    users: {
+                        select: {
+                            user: {
+                                select: {
+                                    id: true,
+                                    name: true,
+                                }
+                            }
+                        }
+                    }
+                }
+            }),
+
+            prisma.service.count({ where })
+        ])
+        const totalPages = Math.ceil(total / limit)
+        return res.status(200).json({services, total})
+    } catch (error) {
+            return res.status(500).json({
             message: error.message,
             meta: error.meta,
             stack: error.stack
