@@ -11,7 +11,7 @@ export async function createService(req, res) {
     if (!errors.isEmpty()) {
         return res.status(400).json({ errors: errors.array() });
     }
-    
+
     try {
         const service = await prisma.service.create({
             data: {
@@ -49,8 +49,8 @@ export async function getServices(req, res) {
     const { businessId } = req.user
     try {
         const services = await prisma.service.findMany({
-            where: { 
-                businessId, 
+            where: {
+                businessId,
                 isActive: true
             },
             include: {
@@ -83,9 +83,9 @@ export async function getServiceById(req, res) {
     const { businessId } = req.user
     try {
         const service = await prisma.service.findUnique({
-            where: { 
-                businessId, 
-                id: req.query.id, 
+            where: {
+                businessId,
+                id: req.query.id,
                 isActive: true
             },
             include: {
@@ -215,7 +215,7 @@ export async function deleteService(req, res) {
     try {
         await prisma.service.update({
             where: {
-                id: serviceId, 
+                id: serviceId,
                 isActive: true
             },
             data: {
@@ -240,12 +240,20 @@ export async function getServicesParams(req, res) {
     const page = Number(searchParams.page) || 1
     const limit = Number(searchParams.limit) || 20
     const search = searchParams.search || ""
+    const userId = searchParams.userId
 
     const { businessId } = req.user
 
     const where = {
         businessId,
         isActive: true,
+        ...(userId && {
+            users: {
+                some: {
+                    userId
+                }
+            }
+        }),
         OR:[
             {   name: {
                     contains: search,
