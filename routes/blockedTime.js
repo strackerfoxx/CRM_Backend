@@ -9,7 +9,22 @@ import { auth } from "../middlewares/auth.js";
 const blockedTimeValidation = [
     body('date').notEmpty().withMessage('The date is required').isISO8601().withMessage('Date must be a valid ISO 8601 string'),
     body('start').notEmpty().withMessage('The start time is required').matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Start time must be HH:mm'),
-    body('end').notEmpty().withMessage('The end time is required').matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('End time must be HH:mm')
+    body('end')
+        .notEmpty()
+        .withMessage('The end time is required')
+        .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+        .withMessage('End time must be HH:mm')
+        .custom((end, { req }) => {
+            const parseToMinutes = (hour) => {
+                const [h, m] = hour.split(':').map(Number);
+                return h * 60 + m;
+            };
+
+            if (!req.body.start) return true;
+
+            return parseToMinutes(end) > parseToMinutes(req.body.start);
+        })
+        .withMessage('End time must be greater than start time')
 ];
 
 router.post("/create", auth, blockedTimeValidation, deepClean, createBlockedTime);
