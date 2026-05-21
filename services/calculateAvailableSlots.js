@@ -84,11 +84,28 @@ export async function calculateAvailableSlots({
     }
   })
 
-  const ranges = appointmentServices.map(a => ({
-    start: a.appointment.startTimeMinutes,
-    end: a.appointment.endTimeMinutes,
-    userId: a.userId
-  }))
+  const blockedTimes = await prisma.blockedTime.findMany({
+    where: {
+      businessId,
+      date: {
+        gte: dayStart,
+        lt: dayEnd
+      }
+    }
+  })
+
+  const ranges = [
+    ...appointmentServices.map(a => ({
+      start: a.appointment.startTimeMinutes,
+      end: a.appointment.endTimeMinutes,
+      userId: a.userId
+    })),
+    ...blockedTimes.map(b => ({
+      start: parseHourToMinutes(b.start),
+      end: parseHourToMinutes(b.end),
+      userId: b.userId // can be null for business-wide block
+    }))
+  ]
 
   const servicesWithUser = services.filter(s => s.userId)
 
@@ -105,7 +122,7 @@ export async function calculateAvailableSlots({
     )
 
     let invalid = false
-    
+
     for (const { userId, serviceId } of servicesWithUser) {
       if (!validPairs.has(`${userId}-${serviceId}`)) {
         invalid = true
@@ -158,7 +175,7 @@ export async function calculateAvailableSlots({
 
       if (userId) {
         const conflict = ranges.some(r =>
-          r.userId === userId &&
+          (!r.userId || r.userId === userId) &&
           blockStart < r.end &&
           blockEnd > r.start
         )
@@ -170,7 +187,7 @@ export async function calculateAvailableSlots({
         const candidates = usersByService[serviceId]
         const hasFreeUser = candidates.some(uid =>
           !ranges.some(r =>
-            r.userId === uid &&
+            (!r.userId || r.userId === uid) &&
             blockStart < r.end &&
             blockEnd > r.start
           )
@@ -218,7 +235,7 @@ export async function calculateAvailableSlots({
 
       const freeUser = candidates.find(uid =>
         !ranges.some(r =>
-          r.userId === uid &&
+          (!r.userId || r.userId === uid) &&
           blockStart < r.end &&
           blockEnd > r.start
         )
