@@ -5,7 +5,7 @@ const prisma = new PrismaClient()
 import { calculateAvailableSlots } from '../services/calculateAvailableSlots.js';
 
 
-import { orderedDays, parseHourToMinutes, formatMinutes, isSameDay } from '../helpers/availability.js';
+import { orderedDays, parseHourToMinutes, formatMinutes, isSameDay, BLOCKING_APPOINTMENT_STATUSES } from '../helpers/availability.js';
 
 export async function getAvailableDates(req, res) {
   const { businessId, services, from, days = 14 } = req.body
@@ -155,6 +155,158 @@ export const getAvailableSlots = async (req, res) => {
         meta: error.meta,
         stack: error.stack
     })
+  }
+}
+
+export async function getAvailableUsersForSlot(req, res) {
+  try {
+    const { businessId, date, startTime, services } = req.body;
+
+    if (!businessId || !date || !startTime || !services || !services.length) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const serviceIds = services.map(s => s.serviceId);
+
+    // 1. Get services info to calculate duration blocks
+    const dbServices = await prisma.service.findMany({
+      where: {
+        id: { in: serviceIds },
+        businessId,
+      },
+      include: {
+        users: {
+          include: {
+            user: {
+              select: { id: true, name: true, deletedAt: true }
+            }
+          }
+        }
+      }
+    });
+
+    if (dbServices.length !== serviceIds.length) {
+      return res.status(400).json({ error: "Invalid services" });
+    }
+
+    const serviceMap = Object.fromEntries(dbServices.map(s => [s.id, s]));
+
+    // 2. Fetch existing appointments and blocks for that day to check user availability
+    const dayStart = new Date(`${date}T00:00:00.000Z`); // ensure UTC comparison
+    const dayEnd = new Date(`${date}T23:59:59.999Z`);
+
+    const appointmentServices = await prisma.appointmentService.findMany({
+      where: {
+        appointment: {
+          businessId,
+          date: {
+            gte: dayStart,
+            lt: dayEnd
+          },
+          status: {
+            in: BLOCKING_APPOINTMENT_STATUSES
+          }
+        }
+      },
+      include: {
+        appointment: true
+      }
+    });
+
+    const blockedTimes = await prisma.blockedTime.findMany({
+      where: {
+        businessId,
+        date: {
+          gte: dayStart,
+          lt: dayEnd
+        }
+      }
+    });
+
+    const ranges = [
+      ...appointmentServices.map(a => ({
+        start: a.appointment.startTimeMinutes,
+        end: a.appointment.endTimeMinutes,
+        userId: a.userId
+      })),
+      ...blockedTimes.map(b => ({
+        start: parseHourToMinutes(b.start),
+        end: parseHourToMinutes(b.end),
+        userId: b.userId // can be null for business-wide block
+      }))
+    ];
+
+    // 3. Check business hours and user schedules
+    const dayKey = orderedDays[new Date(`${date}T12:00:00.000Z`).getDay()]; // Use midday UTC for robust day calculation
+    const allUsers = await prisma.user.findMany({
+      where: { businessId, deletedAt: null },
+      include: { schedules: true }
+    });
+
+    const userSchedulesMap = {};
+    for (const u of allUsers) {
+      const schedule = u.schedules.find(s => s.dayOfWeek === dayKey);
+      if (schedule && !isNaN(parseHourToMinutes(schedule.startTime)) && !isNaN(parseHourToMinutes(schedule.endTime))) {
+        userSchedulesMap[u.id] = {
+          start: parseHourToMinutes(schedule.startTime),
+          end: parseHourToMinutes(schedule.endTime)
+        };
+      }
+    }
+
+    // 4. Calculate available users per service for their specific block
+    let cursor = parseHourToMinutes(startTime);
+    const result = [];
+
+    for (const reqService of services) {
+      const serviceId = reqService.serviceId;
+      const service = serviceMap[serviceId];
+      const duration = service.durationMin + (service.cleaningTimeMin || 0);
+      const blockStart = cursor;
+      const blockEnd = cursor + duration;
+
+      const availableUsers = [];
+
+      // Users associated with this service
+      for (const us of service.users) {
+        if (us.user.deletedAt !== null) continue;
+        const uid = us.user.id;
+
+        // Check if user is scheduled to work during this block
+        const userSchedule = userSchedulesMap[uid];
+        if (!userSchedule || blockStart < userSchedule.start || blockEnd > userSchedule.end) {
+          continue;
+        }
+
+        // Check if user is free (no overlapping appointment or block)
+        const isBusy = ranges.some(r =>
+          (!r.userId || r.userId === uid) &&
+          blockStart < r.end &&
+          blockEnd > r.start
+        );
+
+        if (!isBusy) {
+          availableUsers.push({ id: us.user.id, name: us.user.name });
+        }
+      }
+
+      result.push({
+        serviceId,
+        availableUsers
+      });
+
+      cursor = blockEnd;
+    }
+
+    return res.status(200).json(result);
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      message: error.message,
+      meta: error.meta,
+      stack: error.stack
+    });
   }
 }
 
