@@ -15,6 +15,7 @@ import {
     getAppointmentsParams,
     getCalendarMetrics,
     getDayMetrics,
+    getAvailableUsersForSlot,
 } from "../controllers/appointmentController.js"
 
 import { auth } from "../middlewares/auth.js"
@@ -43,6 +44,8 @@ router.delete("/delete", appointmentAuth, deleteAppointment)
 router.post("/availability", appointmentAuth, getAvailableDates)
 
 router.post("/availability/slots", appointmentAuth, getAvailableSlots)
+
+router.post("/availability/users", appointmentAuth, getAvailableUsersForSlot)
 
 router.get("/calendar-metrics", auth, getCalendarMetrics)
 
