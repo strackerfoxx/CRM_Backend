@@ -26,8 +26,25 @@ const clientValidation = [
 router.post('/create', clientValidation, deepClean, createClient)
 router.post('/self-create', clientValidation, deepClean, createClientSelfService)
 
-router.post('/confirm-client', clientValidation, deepClean, confirmClient)
-router.post('/login', clientValidation, deepClean, loginClient)
+router.post('/confirm-client',
+    [
+        body('phone')
+        .notEmpty().withMessage('The phone number is required')
+        .isMobilePhone().withMessage('The phone number is not valid'),
+        body('idToken').notEmpty().withMessage('Firebase idToken is required')
+    ],
+    deepClean,
+    confirmClient
+)
+router.post('/login',
+    [
+        body('phone')
+        .notEmpty().withMessage('The phone number is required')
+        .isMobilePhone().withMessage('The phone number is not valid')
+    ],
+    deepClean,
+    loginClient
+)
 
 router.get('/get-clients', auth, getClients)
 router.get('/get-client-by-id', auth, getClientById)
