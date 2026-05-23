@@ -33,7 +33,6 @@ router.post('/confirm-client',
         .isMobilePhone().withMessage('The phone number is not valid'),
         body('idToken').notEmpty().withMessage('Firebase idToken is required')
     ],
-    deepClean,
     confirmClient
 )
 router.post('/login',
