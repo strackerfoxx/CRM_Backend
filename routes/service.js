@@ -19,6 +19,7 @@ const clientValidation = [
 
 router.post("/create", auth, deepClean, clientValidation, createService)
 router.get("/get-services", auth, getServices)
+router.get("/get-services-client", getServices)
 router.get("/get-services-by-params", auth, getServicesParams)
 router.get("/get-service-by-id", auth, getServiceById)
 router.put("/update", auth, deepClean, clientValidation, updateService)

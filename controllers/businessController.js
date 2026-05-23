@@ -58,7 +58,9 @@ export async function createBusiness(req, res){
 }
 
 export async function getBusiness(req, res){
-    const { businessId } = req.user
+
+    let businessId = req.user ? req.user.businessId : req.query.businessId;
+    if(!businessId) return res.status(400).json({msg: "Business ID is required"})
 
     try {
         const business = await prisma.business.findUnique({
@@ -69,10 +71,11 @@ export async function getBusiness(req, res){
                 deletedAt: null
             },include: {
                 users: {
-                    where: { deletedAt: null }
-                },
-                services: {
-                    where: { isActive: true },
+                    where: { deletedAt: null },
+                    select: {
+                        id: true,
+                        name: true,
+                    }
                 },
             }
         })

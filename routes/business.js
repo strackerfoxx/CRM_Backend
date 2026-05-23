@@ -20,6 +20,7 @@ const businessValidation = [
 
 router.post("/create", businessValidation, deepClean, createBusiness);
 router.get("/get-business-by-id", auth, getBusiness);
+router.get("/get-business-by-id-client", getBusiness);
 router.put("/update", auth,
     businessValidation,
     [body('id').notEmpty().withMessage('The ID is required')],

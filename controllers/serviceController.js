@@ -46,7 +46,10 @@ export async function createService(req, res) {
 }
 
 export async function getServices(req, res) {
-    const { businessId } = req.user
+    
+    let businessId = req.user ? req.user.businessId : req.query.businessId;
+    if(!businessId) return res.status(400).json({msg: "Business ID is required"})
+
     try {
         const services = await prisma.service.findMany({
             where: {
