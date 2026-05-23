@@ -4,8 +4,7 @@ const prisma = new PrismaClient()
 
 import jwt from "jsonwebtoken"
 
-import twilio from "twilio";
-import { sendOTP, verifyOTP } from "../middlewares/OTPHandler.js"
+import { verifyFirebasePhoneToken } from "../middlewares/firebaseAuth.js"
 
 export async function createClient(req, res) {
     const { name, email, phone, businessId } = req.body
@@ -90,10 +89,7 @@ export async function createClientSelfService(req, res) {
             data: { clientId: newClient.id, businessId }
         })
 
-        // now we send the OTP to the phone number
-        sendOTP(phone)
-
-        return res.status(201).json({ msg: "Client created, waiting for confirmation", client: newBusinessClient})
+        return res.status(201).json({ msg: "Client created, waiting for Firebase phone confirmation", client: newBusinessClient})
         
     } catch (error) {
         if (error.code === "P2002") {
@@ -104,24 +100,28 @@ export async function createClientSelfService(req, res) {
 }
 
 export async function confirmClient(req, res) {
-    const { phone, code } = req.body;
+    const { phone, idToken } = req.body;
 
     try {
         const client = await prisma.client.findUnique({ where: { phone } });
-        const businessClient = await prisma.businessClient.findFirst({ where: { clientId: client.id } });
 
         if (!client) {
             return res.status(404).json({ msg: "Client not found" });
         }
 
-        // we validate the OTP sent to the phone number
-        const verification = await verifyOTP(phone, code)
-        if(verification.success === false) return res.status(400).json({ msg: "Invalid token" });
+        const decodedToken = await verifyFirebasePhoneToken(idToken);
+        if (decodedToken.phone_number !== phone) {
+            return res.status(400).json({ msg: "Phone number does not match verified token" });
+        }
 
-        // update client to set isConfirmed to true
+        const businessClient = await prisma.businessClient.findFirst({ where: { clientId: client.id } });
+        if (!businessClient) {
+            return res.status(404).json({ msg: "Business client relation not found" });
+        }
+
         await prisma.client.update({
             where: { phone },
-            data: { 
+            data: {
                 isConfirmed: true
             }
         });
@@ -137,7 +137,7 @@ export async function confirmClient(req, res) {
 
         return res.status(200).json({ msg: "Phone confirmed successfully", token });
     } catch (error) {
-        return res.status(500).json(error);
+        return res.status(400).json({ msg: error.message || "Firebase phone confirmation failed" });
     }
 }
 

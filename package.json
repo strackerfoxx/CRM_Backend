@@ -22,6 +22,7 @@
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "express-validator": "^7.3.2",
+    "firebase-admin": "^13.5.0",
     "jsonwebtoken": "^9.0.3",
     "twilio": "^5.9.0"
   },
