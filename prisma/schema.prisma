@@ -96,7 +96,7 @@ model Client {
   updatedAt   DateTime         @updatedAt
   phone       String           @unique
   isConfirmed Boolean          @default(false)
-  token       String?
+  firebaseUid String? @unique
   businesses  BusinessClient[]
 }
 

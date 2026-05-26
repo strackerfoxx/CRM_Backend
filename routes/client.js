@@ -24,7 +24,7 @@ const clientValidation = [
 ]
 
 router.post('/create', clientValidation, deepClean, createClient)
-router.post('/self-create', clientValidation, deepClean, createClientSelfService)
+router.post('/self-create', deepClean, createClientSelfService)
 
 router.post('/confirm-client',
     [
@@ -35,15 +35,7 @@ router.post('/confirm-client',
     ],
     confirmClient
 )
-router.post('/login',
-    [
-        body('phone')
-        .notEmpty().withMessage('The phone number is required')
-        .isMobilePhone().withMessage('The phone number is not valid')
-    ],
-    deepClean,
-    loginClient
-)
+router.post('/login',loginClient)
 
 router.get('/get-clients', auth, getClients)
 router.get('/get-client-by-id', auth, getClientById)

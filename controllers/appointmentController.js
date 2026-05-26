@@ -656,7 +656,6 @@ export async function getClientAppointments(req, res) {
 
             prisma.appointment.count({ where })
         ])
-
         const totalPages = Math.ceil(total / limit)
         return res.status(200).json({ appointments, total, totalPages })
     } catch (error) {
