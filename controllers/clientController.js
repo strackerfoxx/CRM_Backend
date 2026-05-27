@@ -314,6 +314,8 @@ export async function loginClient(req, res) {
             }
         })
 
+        if(!businessClient) return res.status(404).json({ msg: "Client not found" })
+
         const token = jwt.sign({
             "id": businessClient.id,
             "name": businessClient.client.name,
