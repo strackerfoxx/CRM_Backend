@@ -62,6 +62,7 @@ export async function getAvailableDates(req, res) {
   const appointments = await prisma.appointment.findMany({
     where: {
       businessId,
+      deletedAt: null,
       status: { not: "CANCELED" },
       date: { gte: startDate, lte: endDate }
     }
@@ -386,6 +387,7 @@ export async function createAppointment(req, res) {
     const overlappingAppointment = await prisma.appointment.findFirst({
       where: {
         businessId,
+        deletedAt: null,
         businessClientId,
         date: appointmentDate,
         status: { not: "CANCELED" },
@@ -482,7 +484,8 @@ export async function getAppointments(req, res) {
         const [appointments, total] = await Promise.all([
           prisma.appointment.findMany({
               where: {
-              businessId
+              businessId,
+              deletedAt: null
           },
           include: {
                   services: {
@@ -512,7 +515,7 @@ export async function getAppointments(req, res) {
               take: limit
           }),
 
-          prisma.appointment.count({ where: { businessId } })
+          prisma.appointment.count({ where: { businessId, deletedAt: null } })
         ])
 
         const totalPages = Math.ceil(total / limit)
@@ -578,8 +581,8 @@ export async function getAppointmentsParams(req, res) {
             some: {
                 serviceId: service
             }
-        } : undefined
-
+        } : undefined,
+        deletedAt: null
       }
 
 
@@ -636,6 +639,7 @@ export async function getClientAppointments(req, res) {
     const where = {
         businessId,
         businessClientId: clientId,
+        deletedAt: null
     }
 
     try {
@@ -671,9 +675,10 @@ export async function getAppointmentById(req, res) {
     const { id } = req.query
 
     try {
-        const appointment = await prisma.appointment.findUnique({
+        const appointment = await prisma.appointment.findFirst({
             where: {
                 id,
+                deletedAt: null
             }, include: {
                 services: {
                     include: {
@@ -729,8 +734,8 @@ export async function updateAppointment(req, res) {
     }
 
     /* Obtener cita */
-    const appointment = await prisma.appointment.findUnique({
-      where: { id: appointmentId },
+    const appointment = await prisma.appointment.findFirst({
+      where: { id: appointmentId, deletedAt: null },
       include: {
         services: true
       }
@@ -833,6 +838,7 @@ export async function updateAppointment(req, res) {
     const overlappingAppointment = await prisma.appointment.findFirst({
       where: {
         businessId,
+        deletedAt: null,
         businessClientId,
         date: new Date(`${date}T00:00:00`),
         id: { not: appointmentId },
@@ -898,25 +904,23 @@ export async function updateAppointment(req, res) {
 export async function deleteAppointment(req, res) {
     const { id } = req.body
     try {
-        const appointment = await prisma.appointment.findUnique({
-            where: {id}
+        const appointment = await prisma.appointment.findFirst({
+            where: { id, deletedAt: null }
         })
 
-        if(appointment.status === "SCHEDULED"){
-            await prisma.appointment.update({
-                where: { id },
-                data: {
-                    status: "CANCELED"
-                }
-            })
-            return res.status(200).json({ msg: "Appointment canceled successfully" })
+        if (!appointment) {
+            return res.status(404).json({ msg: "Appointment not found" })
         }
 
-        if(appointment.status === "COMPLETED"){
-            return res.status(200).json({ msg: "Appointment has been completed" })
-        }
+        await prisma.appointment.update({
+            where: { id },
+            data: {
+                deletedAt: new Date()
+            }
+        })
 
-        return res.status(200).json({ msg: `Appointment has already been canceled on ${appointment.updatedAt}` })
+        return res.status(200).json({ msg: "Appointment deleted successfully" })
+
     } catch (error) {
         if (error.code === "P2025") {
             return res.status(409).json({ msg: "Appointment doesnt exists" })
@@ -940,6 +944,7 @@ export async function getCalendarMetrics(req, res) {
     const appointments = await prisma.appointment.findMany({
       where: {
         businessId,
+        deletedAt: null,
         date: {
           gte: start,
           lte: end,
@@ -1027,6 +1032,7 @@ export async function getDayMetrics(req, res) {
       prisma.appointment.findMany({
         where: {
           businessId,
+          deletedAt: null,
           date: {
             gte: startOfDay,
             lte: endOfDay,

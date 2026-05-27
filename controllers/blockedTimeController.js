@@ -43,6 +43,7 @@ async function validateBlockedTimeConflicts({ businessId, date, start, end, user
     const appointmentConflicts = await prisma.appointment.findFirst({
         where: {
             businessId,
+            deletedAt: null,
             status: { not: 'CANCELED' },
             date: {
                 gte: dateStart,
