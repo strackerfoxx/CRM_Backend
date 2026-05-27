@@ -377,13 +377,6 @@ export async function createAppointment(req, res) {
     const endTime = formatMinutes(currentMinutes)
     const totalDuration = currentMinutes - parseHourToMinutes(startTime)
 
-    const appointmentDate = new Date(`${date}T00:00:00`)
-
-    const appointmentDateTime = new Date(`${date}T${startTime}:00`)
-    if (appointmentDateTime < new Date()) {
-      return res.status(400).json({ error: "Cannot schedule an appointment in the past" })
-    }
-
     const overlappingAppointment = await prisma.appointment.findFirst({
       where: {
         businessId,
@@ -755,14 +748,6 @@ export async function updateAppointment(req, res) {
         .json({ msg: "Completed appointments cannot be updated" })
     }
 
-    const appointmentDateTime = new Date(`${date}T${startTime}:00`)
-    const existingDateString = appointment.date.toISOString().split('T')[0]
-    if (
-      appointmentDateTime < new Date() &&
-      (date !== existingDateString || startTime !== appointment.startTime)
-    ) {
-      return res.status(400).json({ error: "Cannot schedule an appointment in the past" })
-    }
 
     /* Validar disponibilidad (EXCLUYENDO esta cita) */
     const calculations = await calculateAvailableSlots({
