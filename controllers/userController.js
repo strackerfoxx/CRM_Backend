@@ -87,7 +87,7 @@ export async function loginUser(req, res, next){
         const business = await prisma.business.findUnique({
             where: { id: user.businessId, deletedAt: null }
         })
-        return res.status(201).json({ token: await login(user, password), user: {name: user.name, role: user.role}})
+        return res.status(201).json({ token: await login(res, user, password), user: {name: user.name, role: user.role}})
     } catch (error) {
         if (error.code === "P2025") {
             return res.status(404).json({ msg: "User not found" })

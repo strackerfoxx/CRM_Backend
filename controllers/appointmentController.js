@@ -382,7 +382,7 @@ export async function createAppointment(req, res) {
         businessId,
         deletedAt: null,
         businessClientId,
-        date,
+        date: new(date),
         status: { not: "CANCELED" },
         startTimeMinutes: { lt: parseHourToMinutes(endTime) },
         endTimeMinutes: { gt: parseHourToMinutes(startTime) }
