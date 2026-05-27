@@ -213,12 +213,14 @@ export async function updateService(req, res) {
 }
 
 export async function deleteService(req, res) {
-    const { serviceId } = req.body
+    const { businessId } = req.user
+    const { id } = req.body
 
     try {
         await prisma.service.update({
             where: {
-                id: serviceId,
+                id,
+                businessId,
                 isActive: true
             },
             data: {
@@ -228,7 +230,7 @@ export async function deleteService(req, res) {
         return res.status(200).json({ msg: "Service deleted successfuly" })
     } catch (error) {
         if (error.code === "P2005") {
-            return res.status(409).json({ msg: "Client doesnt exists" })
+            return res.status(409).json({ msg: "Service doesnt exists" })
         }
         return res.status(500).json({
             message: error.message,

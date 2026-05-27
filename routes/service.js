@@ -23,6 +23,6 @@ router.get("/get-services-client", getServices)
 router.get("/get-services-by-params", auth, getServicesParams)
 router.get("/get-service-by-id", auth, getServiceById)
 router.put("/update", auth, deepClean, clientValidation, updateService)
-router.delete("/delete", auth, deepClean, deleteService)
+router.delete("/delete-service", auth, deepClean, deleteService)
 
 export default router;

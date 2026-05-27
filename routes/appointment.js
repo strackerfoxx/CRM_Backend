@@ -36,7 +36,7 @@ router.get("/get-appointments-by-params", businessAuth, getAppointmentsParams)
 
 router.put("/update", body('date').notEmpty().withMessage('The date is required'), appointmentAuth, updateAppointment)
 
-router.delete("/delete", businessAuth, deleteAppointment)
+router.delete("/delete-appointment", businessAuth, deleteAppointment)
 
 
 // ahora tenemos que hacer el flujo desde que el usuario elige los servicios que quiere,

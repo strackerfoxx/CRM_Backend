@@ -241,19 +241,41 @@ export async function updateUser(req, res) {
 }
 
 export async function deleteUser(req, res) {
-    const { id, businessId, role } = req.user
+    const { id: authUserId, businessId, role } = req.user
+    const { id } = req.body
+
+    if (!id) {
+        return res.status(400).json({ msg: "User id is required" })
+    }
 
     try {
+        const userToDelete = await prisma.user.findFirst({
+            where: { id, businessId, deletedAt: null }
+        })
+
+        if (!userToDelete) {
+            return res.status(404).json({ msg: "User not found" })
+        }
+
+        if (userToDelete.role === 'ADMIN' && role !== 'ADMIN') {
+            return res.status(403).json({ msg: "Only admin can delete an admin" })
+        }
+
+        if (role !== 'ADMIN' && authUserId !== id) {
+            return res.status(403).json({ msg: "Unauthorized to delete this user" })
+        }
+
         await prisma.user.update({
-            where: { id, deletedAt: null },
+            where: { id },
             data: { deletedAt: new Date() }
         })
-        if(role === 'ADMIN'){
+
+        if (userToDelete.role === 'ADMIN') {
             await changingBusinessState(businessId, new Date())
             return res.status(200).json({ msg: "User and Business deleted successfully" })
-        }else{
-            return res.status(200).json({ msg: "User deleted successfully" })
         }
+
+        return res.status(200).json({ msg: "User deleted successfully" })
     } catch (error) {
         if (error.code === "P2025") {
             return res.status(404).json({ msg: "User not found" })
