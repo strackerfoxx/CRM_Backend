@@ -786,6 +786,11 @@ export async function updateAppointment(req, res) {
       dbServices.map(s => [s.id, s])
     )
 
+    const totalAmount = services.reduce((sum, { serviceId }) => {
+      const service = serviceMap[serviceId]
+      return sum + (service?.price || 0)
+    }, 0)
+
     /* Calcular nuevos tiempos */
     const startMinutes = parseHourToMinutes(startTime)
 
@@ -856,7 +861,8 @@ export async function updateAppointment(req, res) {
           startTimeMinutes: startMinutes,
           endTimeMinutes: endMinutes,
           businessClientId,
-          status
+          status,
+          amount: Math.round(totalAmount)
         }
       })
 
