@@ -377,12 +377,14 @@ export async function createAppointment(req, res) {
     const endTime = formatMinutes(currentMinutes)
     const totalDuration = currentMinutes - parseHourToMinutes(startTime)
 
+    const appointmentDate = new Date(date)
+
     const overlappingAppointment = await prisma.appointment.findFirst({
       where: {
         businessId,
         deletedAt: null,
         businessClientId,
-        date: new(date),
+        date: appointmentDate,
         status: { not: "CANCELED" },
         startTimeMinutes: { lt: parseHourToMinutes(endTime) },
         endTimeMinutes: { gt: parseHourToMinutes(startTime) }
