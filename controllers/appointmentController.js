@@ -138,7 +138,7 @@ export async function getAvailableDates(req, res) {
     }
 
     if (hasSlot) {
-      validDates.push(currentDate.toISOString().split("T")[0])
+      validDates.push(DateTime.fromJSDate(currentDate).toUTC().toISODate())
     }
   }
 
@@ -1044,7 +1044,7 @@ export async function getCalendarMetrics(req, res) {
 
     appointments.forEach((appointment) => {
       // Formato YYYY-MM-DD
-      const dateStr = appointment.date.toISOString().split('T')[0];
+      const dateStr = DateTime.fromJSDate(appointment.date).toUTC().toISODate();
       if (!dailyCounts[dateStr]) {
         dailyCounts[dateStr] = 0;
       }
