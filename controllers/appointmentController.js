@@ -1,3 +1,4 @@
+import { DateTime } from "luxon";
 import { validationResult } from 'express-validator';
 import {PrismaClient} from '@prisma/client';
 const prisma = new PrismaClient()
@@ -146,7 +147,38 @@ export async function getAvailableDates(req, res) {
 
 export const getAvailableSlots = async (req, res) => {
   try {
-    const {slots} = await calculateAvailableSlots(req.body)
+    const { currentTime, timezone, date } = req.body;
+
+    if (currentTime && timezone && date) {
+      const nowLuxon = DateTime.fromISO(currentTime).setZone(timezone);
+      const requestedDateLuxon = DateTime.fromISO(date, { zone: timezone }).startOf("day");
+      const todayLuxon = nowLuxon.startOf("day");
+
+      if (requestedDateLuxon < todayLuxon) {
+        return res.status(400).json({ msg: "No available slots for past dates" });
+      }
+    }
+
+    let {slots} = await calculateAvailableSlots(req.body)
+
+    if (currentTime && timezone && date) {
+      const nowLuxon = DateTime.fromISO(currentTime).setZone(timezone);
+      const requestedDateLuxon = DateTime.fromISO(date, { zone: timezone }).startOf("day");
+      const todayLuxon = nowLuxon.startOf("day");
+
+      if (+requestedDateLuxon === +todayLuxon) {
+        slots = slots.filter(slot => {
+          const [hours, minutes] = slot.split(':').map(Number);
+          const slotTime = requestedDateLuxon.set({ hour: hours, minute: minutes });
+          return slotTime > nowLuxon;
+        });
+
+        if (slots.length === 0) {
+          return res.status(400).json({ msg: "No available slots for past dates" });
+        }
+      }
+    }
+
     return res.status(200).json( slots )
 
   } catch (error) {
@@ -161,10 +193,28 @@ export const getAvailableSlots = async (req, res) => {
 
 export async function getAvailableUsersForSlot(req, res) {
   try {
-    const { businessId, date, startTime, services } = req.body;
+    const { businessId, date, startTime, services, timezone } = req.body;
 
     if (!businessId || !date || !startTime || !services || !services.length) {
       return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    if (timezone) {
+      const nowLuxon = DateTime.now().setZone(timezone);
+      const requestedDateLuxon = DateTime.fromISO(date, { zone: timezone }).startOf("day");
+      const todayLuxon = nowLuxon.startOf("day");
+
+      if (requestedDateLuxon < todayLuxon) {
+        return res.status(400).json({ msg: "No available slots for past dates" });
+      }
+
+      if (+requestedDateLuxon === +todayLuxon) {
+        const [hours, minutes] = startTime.split(':').map(Number);
+        const slotTime = requestedDateLuxon.set({ hour: hours, minute: minutes });
+        if (slotTime <= nowLuxon) {
+          return res.status(400).json({ msg: "No available slots for past dates" });
+        }
+      }
     }
 
     const serviceIds = services.map(s => s.serviceId);
@@ -318,7 +368,8 @@ export async function createAppointment(req, res) {
       businessClientId,
       date,
       startTime,
-      services
+      services,
+      timezone
     } = req.body
 
     if (
@@ -329,6 +380,24 @@ export async function createAppointment(req, res) {
       !services?.length
     ) {
       return res.status(400).json({ error: "Missing required fields" })
+    }
+
+    if (timezone) {
+      const nowLuxon = DateTime.now().setZone(timezone);
+      const requestedDateLuxon = DateTime.fromISO(date, { zone: timezone }).startOf("day");
+      const todayLuxon = nowLuxon.startOf("day");
+
+      if (requestedDateLuxon < todayLuxon) {
+        return res.status(400).json({ msg: "No available slots for past dates" });
+      }
+
+      if (+requestedDateLuxon === +todayLuxon) {
+        const [hours, minutes] = startTime.split(':').map(Number);
+        const slotTime = requestedDateLuxon.set({ hour: hours, minute: minutes });
+        if (slotTime <= nowLuxon) {
+          return res.status(400).json({ msg: "No available slots for past dates" });
+        }
+      }
     }
 
     /**
@@ -713,7 +782,8 @@ export async function updateAppointment(req, res) {
       businessId,
       businessClientId,
       services,
-      status
+      status,
+      timezone
     } = req.body
 
     if (
@@ -726,6 +796,24 @@ export async function updateAppointment(req, res) {
       !services?.length
     ) {
       return res.status(400).json({ msg: "Missing required fields" })
+    }
+
+    if (timezone) {
+      const nowLuxon = DateTime.now().setZone(timezone);
+      const requestedDateLuxon = DateTime.fromISO(date, { zone: timezone }).startOf("day");
+      const todayLuxon = nowLuxon.startOf("day");
+
+      if (requestedDateLuxon < todayLuxon) {
+        return res.status(400).json({ msg: "No available slots for past dates" });
+      }
+
+      if (+requestedDateLuxon === +todayLuxon) {
+        const [hours, minutes] = startTime.split(':').map(Number);
+        const slotTime = requestedDateLuxon.set({ hour: hours, minute: minutes });
+        if (slotTime <= nowLuxon) {
+          return res.status(400).json({ msg: "No available slots for past dates" });
+        }
+      }
     }
 
     /* Obtener cita */
