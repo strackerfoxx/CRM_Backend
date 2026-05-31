@@ -1,5 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import prisma from '../helpers/prisma.js'
 
 function parseHourToMinutes(hour) {
     const [h, m] = hour.split(':').map(Number);

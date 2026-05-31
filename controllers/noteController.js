@@ -1,5 +1,4 @@
-import {PrismaClient} from "@prisma/client";
-const prisma = new PrismaClient()
+import prisma from '../helpers/prisma.js'
 
 export async function createNote(req, res) {
     const { businessClientId, content } = req.body

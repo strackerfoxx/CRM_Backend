@@ -1,7 +1,6 @@
 import { DateTime } from "luxon";
 import { validationResult } from 'express-validator';
-import {PrismaClient} from '@prisma/client';
-const prisma = new PrismaClient()
+import prisma from '../helpers/prisma.js'
 
 import { calculateAvailableSlots } from '../services/calculateAvailableSlots.js';
 
@@ -155,7 +154,7 @@ export const getAvailableSlots = async (req, res) => {
       const todayLuxon = nowLuxon.startOf("day");
 
       if (requestedDateLuxon < todayLuxon) {
-        return res.status(400).json({ msg: "No available slots for past dates" });
+        return res.status(200).json([]);
       }
     }
 

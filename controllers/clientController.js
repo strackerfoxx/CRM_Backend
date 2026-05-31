@@ -1,6 +1,5 @@
 import { validationResult } from 'express-validator';
-import {PrismaClient} from '@prisma/client';
-const prisma = new PrismaClient()
+import prisma from '../helpers/prisma.js'
 
 import jwt from "jsonwebtoken"
 
