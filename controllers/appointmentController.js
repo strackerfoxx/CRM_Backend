@@ -764,10 +764,11 @@ export async function getAppointmentById(req, res) {
                 },
             }
         })
-        return res.status(200).json({ appointment })
         if (!appointment) {
           return res.status(404).json({ msg: "Appointment not found" })
         }
+        return res.status(200).json({ appointment })
+
     } catch (error) {
         if (error.code === "P2025") {
             return res.status(404).json({ msg: "Appointment not found" })
