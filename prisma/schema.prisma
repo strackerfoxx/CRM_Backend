@@ -58,6 +58,8 @@ model UserSchedule {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, dayOfWeek])
 }
 
 model BlockedTime {
@@ -71,6 +73,8 @@ model BlockedTime {
   updatedAt  DateTime @updatedAt
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, date])
 }
 
 model BusinessClient {

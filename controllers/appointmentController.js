@@ -173,7 +173,7 @@ export const getAvailableSlots = async (req, res) => {
         });
 
         if (slots.length === 0) {
-          return res.status(400).json({ msg: "No available slots for past dates" });
+          return res.status(200).json([]);
         }
       }
     }
@@ -711,7 +711,8 @@ export async function getClientAppointments(req, res) {
                 where,
                 include: {
                     services: {
-                        include: {
+                        select: {
+                            id: true,
                             service: true
                         }
                     }
@@ -738,7 +739,7 @@ export async function getAppointmentById(req, res) {
     const { id } = req.query
 
     try {
-        const appointment = await prisma.appointment.findFirst({
+        const appointment = await prisma.appointment.findUnique({
             where: {
                 id,
                 deletedAt: null
@@ -764,6 +765,9 @@ export async function getAppointmentById(req, res) {
             }
         })
         return res.status(200).json({ appointment })
+        if (!appointment) {
+          return res.status(404).json({ msg: "Appointment not found" })
+        }
     } catch (error) {
         if (error.code === "P2025") {
             return res.status(404).json({ msg: "Appointment not found" })
