@@ -115,7 +115,18 @@ export async function confirmClient(req, res) {
             return res.status(400).json({ msg: "Phone number does not match verified token" });
         }
 
-        const businessClient = await prisma.businessClient.findUnique({ where: { clientId: client.id, businessId } });
+        const businessClient = await prisma.businessClient.findUnique({ 
+            where: { 
+                businessId_clientId: {
+                    clientId: client.id,
+                    businessId: businessId
+                }
+            },
+            include: {
+                client: true
+            }
+        });
+
         if (!businessClient) {
             return res.status(404).json({ msg: "Business client relation not found" });
         }
@@ -139,7 +150,7 @@ export async function confirmClient(req, res) {
 
         const clientData = {
             businessClient: businessClient.id,
-            name: businessClient.client.name,
+            name: businessClient.client.name, 
             businessId: businessClient.businessId
         };
 
