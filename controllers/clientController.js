@@ -21,7 +21,19 @@ export async function createClient(req, res) {
 
         if(client){
             // if the client exists we check if it is already associated with the business
-            if(client.businesses.find(b => b.businessId === businessId)) return res.status(409).json({ msg: "Client already exists", client })
+            const existingRelation = client.businesses.find(b => b.businessId === businessId);
+            if(existingRelation) {
+                if (existingRelation.deletedAt !== null) {
+                    // Reactivate the client
+                    const reactivatedClient = await prisma.businessClient.update({
+                        where: { id: existingRelation.id },
+                        data: { deletedAt: null }
+                    });
+                    return res.status(200).json({ msg: "Client reactivated successfully", client: reactivatedClient });
+                } else {
+                    return res.status(409).json({ msg: "Client already exists", client });
+                }
+            }
             // if not we create the relation with the business
             const newBusinessClient = await prisma.businessClient.create({
                 data: { clientId: client.id, businessId }
@@ -68,7 +80,19 @@ export async function createClientSelfService(req, res) {
 
         if(client){
             // if the client exists we check if it is already associated with the business
-            if(client.businesses.find(b => b.businessId === businessId)) return res.status(409).json({ msg: "Client already exists" })
+            const existingRelation = client.businesses.find(b => b.businessId === businessId);
+            if(existingRelation) {
+                if (existingRelation.deletedAt !== null) {
+                    // Reactivate the client
+                    const reactivatedClient = await prisma.businessClient.update({
+                        where: { id: existingRelation.id },
+                        data: { deletedAt: null }
+                    });
+                    return res.status(200).json({ msg: "Client reactivated successfully", client: reactivatedClient });
+                } else {
+                    return res.status(409).json({ msg: "Client already exists" });
+                }
+            }
             // if not we create the relation with the business
             const newBusinessClient = await prisma.businessClient.create({
                 data: { clientId: client.id, businessId }
@@ -219,9 +243,15 @@ export async function loginClient(req, res) {
             }
         });
 
-        if (!businessClient || businessClient.deletedAt) {
+        if (!businessClient) {
             return res.status(404).json({
                 msg: "Client not found for this business"
+            });
+        }
+
+        if (businessClient.deletedAt) {
+            return res.status(403).json({
+                msg: "Client account is deactivated"
             });
         }
 

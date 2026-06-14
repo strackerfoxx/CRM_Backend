@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import prisma from "../helpers/prisma.js";
 
 export async function appointmentAuth(req, res, next) {
     const authHeader = req.get("Authorization");
@@ -9,6 +10,31 @@ export async function appointmentAuth(req, res, next) {
     try {
         // Verificamos el token (falla y va al catch si es inválido o expiró)
         const decodedToken = jwt.verify(token, process.env.SECRET_KEY);
+
+        // Validamos si la cuenta está eliminada
+        if (decodedToken.role) {
+            // Es un Usuario (Empleado/Dueño)
+            const user = await prisma.user.findFirst({
+                where: {
+                    id: decodedToken.id,
+                    deletedAt: null
+                }
+            });
+            if (!user) {
+                return res.status(403).json({ msg: "Account deactivated" });
+            }
+        } else {
+            // Es un Cliente
+            const client = await prisma.businessClient.findFirst({
+                where: {
+                    id: decodedToken.id,
+                    deletedAt: null
+                }
+            });
+            if (!client) {
+                return res.status(403).json({ msg: "Account deactivated" });
+            }
+        }
 
         // Guardamos la información en req.user para AMBOS (clientes y usuarios)
         // Como ambos tokens tienen 'businessId', tu controlador funcionará sin cambios.
