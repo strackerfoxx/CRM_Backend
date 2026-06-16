@@ -42,6 +42,9 @@ export async function appointmentAuth(req, res, next) {
 
         return next();
     } catch (error) {
+        if (error.name === "TokenExpiredError") {
+             return res.status(401).json({msg: "TokenExpiredError"});
+        }
         return res.status(403).json({ msg: "403 Unauthorized" });
     }
 }

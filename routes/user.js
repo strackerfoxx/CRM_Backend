@@ -1,7 +1,7 @@
 import express from "express";
 const router = express.Router();
 import { body } from "express-validator";
-import { createUser, loginUser, getUser, getAllUsers, updateUser, deleteUser, getUserSchedule, updateUserSchedule, createUserSchedule, deleteUserSchedule, getUsersParams } from "../controllers/userController.js";
+import { createUser, loginUser, refreshTokenUser, logoutUser, getUser, getAllUsers, updateUser, deleteUser, getUserSchedule, updateUserSchedule, createUserSchedule, deleteUserSchedule, getUsersParams } from "../controllers/userController.js";
 
 import { deepClean } from "../middlewares/deepClean.js";
 import { auth } from "../middlewares/auth.js";
@@ -36,6 +36,9 @@ router.post("/login",
      loginUser,
      errorHandler
 );
+router.post("/refresh", refreshTokenUser);
+router.post("/logout", logoutUser);
+
 router.get("/get-user-by-id", auth, getUser)
 router.get("/get-all-users", auth, getAllUsers)
 router.get("/get-users-by-params", auth, getUsersParams)

@@ -27,8 +27,14 @@ export const verifyAccessToken = (token) => {
   return jwt.verify(token, process.env.SECRET_KEY);
 };
 
-export const generateRefreshToken = () => {
-  return crypto.randomBytes(64).toString('hex');
+export const generateRefreshToken = (payload) => {
+  return jwt.sign(
+    payload,
+    process.env.SECRET_KEY,
+    {
+      expiresIn: `${REFRESH_TOKEN_EXPIRES_DAYS}d`,
+    }
+  );
 };
 
 export const getRefreshTokenCookieOptions = () => ({
