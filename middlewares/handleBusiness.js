@@ -8,16 +8,19 @@ export async function changingBusinessState(businessId, operation = new Date()){
             businessId
         },
     })
-    appointments.forEach( async (appointment) => {
-        if(appointment.status === "SCHEDULED"){
-            await prisma.appointment.update({
-                where: { id: appointment.id },
-                data: {
-                    status: "CANCELED"
-                }
-            })
-        }
-    })
+
+    const scheduledIds = appointments
+        .filter(appointment => appointment.status === "SCHEDULED")
+        .map(appointment => appointment.id);
+
+    if (scheduledIds.length > 0) {
+        await prisma.appointment.updateMany({
+            where: { id: { in: scheduledIds } },
+            data: {
+                status: "CANCELED"
+            }
+        });
+    }
 
     await prisma.$transaction([
         prisma.business.update({
