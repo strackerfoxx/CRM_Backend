@@ -5,10 +5,12 @@ import bcrypt from "bcrypt";
 import { changingBusinessState } from '../middlewares/handleBusiness.js';
 import login from '../middlewares/login.js';
 import { parseHourToMinutes } from '../helpers/availability.js';
+import { parseCookies, generateAccessToken, generateRefreshToken, setRefreshTokenCookie, clearRefreshTokenCookie } from "../helpers/tokenService.js";
+import jwt from "jsonwebtoken";
 
-// 
+//
 // Ahora tenemos que agregar el UserSchedule en el createUser controller
-// 
+//
 
 export async function createUser(req, res){
     const errors = validationResult(req);
@@ -61,7 +63,7 @@ export async function createUser(req, res){
             }))
             await prisma.userSchedule.createMany({ data: customSchedules })
         }
-        
+
         return res.status(201).json({ msg: "User created successfully" })
     } catch (error) {
         if (error.code === "P2002") {
@@ -95,14 +97,55 @@ export async function loginUser(req, res, next){
     }
 }
 
+export async function refreshTokenUser(req, res) {
+    const cookies = parseCookies(req);
+    const refreshToken = cookies.refreshToken;
+
+    if (!refreshToken) {
+        return res.status(401).json({ msg: "No refresh token provided" });
+    }
+
+    try {
+        const decoded = jwt.verify(refreshToken, process.env.SECRET_KEY);
+
+        if (decoded.type !== 'user') {
+             return res.status(403).json({ msg: "Invalid token type" });
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { id: decoded.id, deletedAt: null }
+        });
+
+        if (!user) {
+            clearRefreshTokenCookie(res);
+            return res.status(403).json({ msg: "User not found or deleted" });
+        }
+
+        const newAccessToken = generateAccessToken(user);
+        const newRefreshToken = generateRefreshToken({ id: user.id, type: 'user' });
+
+        setRefreshTokenCookie(res, newRefreshToken);
+
+        return res.status(200).json({ token: newAccessToken });
+    } catch (error) {
+        clearRefreshTokenCookie(res);
+        return res.status(401).json({ msg: "Invalid or expired refresh token" });
+    }
+}
+
+export function logoutUser(req, res) {
+    clearRefreshTokenCookie(res);
+    return res.status(200).json({ msg: "Logged out successfully" });
+}
+
 export async function getUser(req, res) {
     const { id } = req.query
     const { businessId } = req.user
     try {
         const user = await prisma.user.findFirst({
-            where: { 
-                id, 
-                deletedAt: null 
+            where: {
+                id,
+                deletedAt: null
             },
             select: {
                 id: true,
@@ -161,14 +204,14 @@ export async function getAllUsers(req, res) {
 
 export async function getUsersParams(req, res) {
     const searchParams = req.query
-    
+
     const page = Number(searchParams.page) || 1
     const limit = Number(searchParams.limit) || 20
     const search = searchParams.search || ""
     const role = req.query.role
 
     const { businessId } = req.user
-    
+
     const where = {
         businessId,
         deletedAt: null,
@@ -224,7 +267,7 @@ export async function updateUser(req, res) {
             return res.status(403).json({ msg: "Role change Unauthorized" })
         }
     }
-    
+
     try {
         await prisma.user.update({
             where: { id, deletedAt: null },
@@ -334,7 +377,7 @@ export async function createUserSchedule(req, res) {
         }
 
         const businessHours = business.businessHours;
-        
+
         // Validate that dayOfWeek exists in businessHours
         if (!businessHours[dayOfWeek]) {
             return res.status(400).json({ msg: "Invalid day of week or business closed on this day" });
@@ -347,8 +390,8 @@ export async function createUserSchedule(req, res) {
 
         // Validate that times are within business hours
         if (scheduleStart < businessOpen || scheduleEnd > businessClose) {
-            return res.status(400).json({ 
-                msg: `Schedule must be within business hours (${businessHours[dayOfWeek].open} - ${businessHours[dayOfWeek].close})` 
+            return res.status(400).json({
+                msg: `Schedule must be within business hours (${businessHours[dayOfWeek].open} - ${businessHours[dayOfWeek].close})`
             });
         }
 

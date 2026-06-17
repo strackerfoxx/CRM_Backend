@@ -1,16 +1,18 @@
 import express from "express";
 const router = express.Router();
 import { body } from "express-validator";
-import { 
-    createClient, 
-    getClients, 
-    getClientById, 
-    deleteClient, 
-    createClientSelfService, 
-    confirmClient, 
-    loginClient, 
-    updateClient, 
-    getClientParams 
+import {
+    createClient,
+    getClients,
+    getClientById,
+    deleteClient,
+    createClientSelfService,
+    confirmClient,
+    loginClient,
+    refreshTokenClient,
+    logoutClient,
+    updateClient,
+    getClientParams
 } from "../controllers/clientController.js"
 
 import { deepClean } from "../middlewares/deepClean.js";
@@ -36,12 +38,14 @@ router.post('/confirm-client',
     confirmClient
 )
 router.post('/login',loginClient)
+router.post('/refresh', refreshTokenClient)
+router.post('/logout', logoutClient)
 
 router.get('/get-clients', auth, getClients)
 router.get('/get-client-by-id', auth, getClientById)
 router.get('/get-client-by-params', auth, getClientParams)
 
-router.put('/update-client', clientValidation, 
+router.put('/update-client', clientValidation,
     [ body('id').notEmpty().withMessage('The ID is required') ],
      auth, updateClient)
 

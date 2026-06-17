@@ -4,6 +4,7 @@ import prisma from '../helpers/prisma.js'
 import jwt from "jsonwebtoken"
 
 import { verifyFirebasePhoneToken } from "../middlewares/firebaseAuth.js"
+import { parseCookies, generateAccessToken, generateRefreshToken, setRefreshTokenCookie, clearRefreshTokenCookie } from "../helpers/tokenService.js";
 
 export async function createClient(req, res) {
     const { name, email, phone, businessId } = req.body
@@ -255,17 +256,14 @@ export async function loginClient(req, res) {
             });
         }
 
-        const token = jwt.sign(
-            {
-                id: businessClient.id,
-                name: businessClient.client.name,
-                businessId: businessClient.businessId
-            },
-            process.env.SECRET_KEY,
-            {
-                expiresIn: "30d"
-            }
-        );
+        const token = generateAccessToken({
+            id: businessClient.id,
+            name: businessClient.client.name,
+            businessId: businessClient.businessId
+        });
+
+        const refreshToken = generateRefreshToken({ id: businessClient.id, type: 'client' });
+        setRefreshTokenCookie(res, refreshToken);
 
         const clientData = {
             businessClient: businessClient.id,
@@ -283,6 +281,53 @@ export async function loginClient(req, res) {
             msg: error.message || "Firebase authentication failed"
         });
     }
+}
+
+export async function refreshTokenClient(req, res) {
+    const cookies = parseCookies(req);
+    const refreshToken = cookies.refreshToken;
+
+    if (!refreshToken) {
+        return res.status(401).json({ msg: "No refresh token provided" });
+    }
+
+    try {
+        const decoded = jwt.verify(refreshToken, process.env.SECRET_KEY);
+
+        if (decoded.type !== 'client') {
+             return res.status(403).json({ msg: "Invalid token type" });
+        }
+
+        const businessClient = await prisma.businessClient.findUnique({
+            where: { id: decoded.id, deletedAt: null },
+            include: { client: { select: { name: true } } }
+        });
+
+        if (!businessClient) {
+            clearRefreshTokenCookie(res);
+            return res.status(403).json({ msg: "Client not found or deleted" });
+        }
+
+        const newAccessToken = generateAccessToken({
+            id: businessClient.id,
+            name: businessClient.client.name,
+            businessId: businessClient.businessId
+        });
+
+        const newRefreshToken = generateRefreshToken({ id: businessClient.id, type: 'client' });
+
+        setRefreshTokenCookie(res, newRefreshToken);
+
+        return res.status(200).json({ token: newAccessToken });
+    } catch (error) {
+        clearRefreshTokenCookie(res);
+        return res.status(401).json({ msg: "Invalid or expired refresh token" });
+    }
+}
+
+export function logoutClient(req, res) {
+    clearRefreshTokenCookie(res);
+    return res.status(200).json({ msg: "Logged out successfully" });
 }
 
 export async function getClients(req, res) {
