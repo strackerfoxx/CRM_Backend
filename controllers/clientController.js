@@ -164,14 +164,14 @@ export async function confirmClient(req, res) {
             }
         });
 
-        const token = jwt.sign({
-            "id": businessClient.id,
-            "name": client.name,
-            "phone": phone,
-            "businessId": businessClient.businessId
-        }, process.env.SECRET_KEY, {
-            expiresIn: "30d"
+        const token = generateAccessToken({
+            id: businessClient.id,
+            name: client.name,
+            businessId: businessClient.businessId
         });
+
+        const refreshToken = generateRefreshToken({ id: businessClient.id, type: 'client' });
+        setRefreshTokenCookie(res, refreshToken);
 
         const clientData = {
             businessClient: businessClient.id,
