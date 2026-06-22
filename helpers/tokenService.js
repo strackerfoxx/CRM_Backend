@@ -37,10 +37,12 @@ export const generateRefreshToken = (payload) => {
   );
 };
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 export const getRefreshTokenCookieOptions = () => ({
   httpOnly: true,
-  secure: true,
-  sameSite: 'none',
+  secure: isProduction,
+  sameSite: isProduction ? 'none' : 'lax',
   path: '/',
   maxAge: REFRESH_TOKEN_MAX_AGE,
 });
@@ -52,8 +54,8 @@ export const setRefreshTokenCookie = (res, token) => {
 export const clearRefreshTokenCookie = (res) => {
   res.clearCookie('refreshToken', {
     httpOnly: true,
-    secure: true,
-    sameSite: 'none',
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
     path: '/',
   });
 };

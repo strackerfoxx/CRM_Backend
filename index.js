@@ -17,12 +17,18 @@ const app = express();
 
 app.set("trust proxy", 1);
 
+const allowedOrigins = [
+  process.env.FRONTEND_ORIGIN || "http://localhost:3000"
+];
+
 app.use(cors({
-  // origin: [
-  //   "http://localhost:3000",
-  //   process.env.FRONTEND_ORIGIN
-  // ],
-  origin: true,
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("CORS policy: origin not allowed"));
+    }
+  },
   credentials: true
 }));
 
