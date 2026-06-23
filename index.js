@@ -17,17 +17,28 @@ const app = express();
 
 app.set("trust proxy", 1);
 
-const allowedOrigins = [
-  process.env.FRONTEND_ORIGIN || "http://localhost:3000"
-];
+const allowedOriginsRaw = process.env.FRONTEND_ORIGIN || "http://localhost:3000";
+const allowAnyOrigin = allowedOriginsRaw.trim() === '*';
+const allowedOrigins = allowAnyOrigin
+  ? []
+  : allowedOriginsRaw
+      .split(',')
+      .map(origin => origin.trim())
+      .filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin) {
       callback(null, true);
-    } else {
-      callback(new Error("CORS policy: origin not allowed"));
+      return;
     }
+
+    if (allowAnyOrigin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error("CORS policy: origin not allowed"));
   },
   credentials: true
 }));
