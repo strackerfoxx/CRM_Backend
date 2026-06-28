@@ -17,7 +17,7 @@ const app = express();
 
 app.set("trust proxy", 1);
 
-const allowedOriginsRaw = process.env.FRONTEND_ORIGIN || "http://localhost:3000";
+const allowedOriginsRaw = process.env.FRONTEND_ORIGIN || "http://localhost:3000" || "http://192.168.1.172:3000";
 const allowAnyOrigin = allowedOriginsRaw.trim() === '*';
 const allowedOrigins = allowAnyOrigin
   ? []
