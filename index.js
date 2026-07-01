@@ -17,29 +17,34 @@ const app = express();
 
 app.set("trust proxy", 1);
 
-const allowedOriginsRaw = process.env.FRONTEND_ORIGIN || "http://localhost:3000" || "http://192.168.1.172:3000";
-const allowAnyOrigin = allowedOriginsRaw.trim() === '*';
-const allowedOrigins = allowAnyOrigin
-  ? []
-  : allowedOriginsRaw
-      .split(',')
-      .map(origin => origin.trim())
-      .filter(Boolean);
+// const allowedOriginsRaw = process.env.FRONTEND_ORIGIN || "http://localhost:3000" || "http://192.168.1.172:3000";
+// const allowAnyOrigin = allowedOriginsRaw.trim() === '*';
+// const allowedOrigins = allowAnyOrigin
+//   ? []
+//   : allowedOriginsRaw
+//       .split(',')
+//       .map(origin => origin.trim())
+//       .filter(Boolean);
+
+// app.use(cors({
+//   origin: (origin, callback) => {
+//     if (!origin) {
+//       callback(null, true);
+//       return;
+//     }
+
+//     if (allowAnyOrigin || allowedOrigins.includes(origin)) {
+//       callback(null, true);
+//       return;
+//     }
+
+//     callback(new Error("CORS policy: origin not allowed"));
+//   },
+//   credentials: true
+// }));
 
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) {
-      callback(null, true);
-      return;
-    }
-
-    if (allowAnyOrigin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
-
-    callback(new Error("CORS policy: origin not allowed"));
-  },
+  origin: true,
   credentials: true
 }));
 
