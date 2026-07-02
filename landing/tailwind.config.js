@@ -1,0 +1,2 @@
+/** @type {import('tailwindcss').Config} */
+export default { content: ['./index.html','./src/**/*.{ts,tsx}'], theme: { extend: { fontFamily: { sans: ['SF Pro Display','SF Pro Text','-apple-system','BlinkMacSystemFont','Inter','sans-serif'] }, colors: { ink: '#08090b', muted: '#6b7280', line: '#e8ebf0', blue: '#0877ff' }, boxShadow: { soft: '0 24px 80px rgba(9, 13, 24, .10)', card: '0 12px 40px rgba(15,23,42,.08)' }, borderRadius: { '4xl': '2rem' } } }, plugins: [] };
