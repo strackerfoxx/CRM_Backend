@@ -140,11 +140,17 @@ export function logoutUser(req, res) {
 
 export async function getUser(req, res) {
     const { id } = req.query
+    const requestedUserId = id || req.user?.id
     const { businessId } = req.user
+
+    if (!requestedUserId) {
+        return res.status(400).json({ msg: "User id is required" })
+    }
+
     try {
         const user = await prisma.user.findFirst({
             where: {
-                id,
+                id: requestedUserId,
                 deletedAt: null
             },
             select: {
@@ -156,14 +162,19 @@ export async function getUser(req, res) {
                 createdAt: true,
                 updatedAt: true,
                 phone: true,
-
                 schedules: true,
                 blockedTimes: true
             }
         })
-        if(user.businessId !== businessId){
+
+        if (!user) {
+            return res.status(404).json({ msg: "User not found" })
+        }
+
+        if (id && user.businessId !== businessId) {
             return res.status(403).json({ msg: "Access denied" })
         }
+
         return res.status(200).json(user)
     } catch (error) {
         if (error.code === "P2025") {

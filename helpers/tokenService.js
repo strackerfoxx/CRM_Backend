@@ -37,12 +37,13 @@ export const generateRefreshToken = (payload) => {
   );
 };
 
-const isProduction = process.env.NODE_ENV === 'production' || process.env.FRONTEND_ORIGIN?.startsWith('https://');
+const isSecureCookie = process.env.NODE_ENV === 'production' || process.env.FRONTEND_ORIGIN?.startsWith('https://');
+const isLocalDevelopment = !isSecureCookie && (!process.env.FRONTEND_ORIGIN || process.env.FRONTEND_ORIGIN.includes('localhost') || process.env.FRONTEND_ORIGIN.includes('127.0.0.1'));
 
 export const getRefreshTokenCookieOptions = () => ({
   httpOnly: true,
-  secure: isProduction,
-  sameSite: isProduction ? 'none' : 'lax',
+  secure: isSecureCookie,
+  sameSite: isSecureCookie ? 'none' : 'lax',
   path: '/',
   maxAge: REFRESH_TOKEN_MAX_AGE,
 });
@@ -54,8 +55,8 @@ export const setRefreshTokenCookie = (res, token) => {
 export const clearRefreshTokenCookie = (res) => {
   res.clearCookie('refreshToken', {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: isProduction ? 'none' : 'lax',
+    secure: isSecureCookie,
+    sameSite: isSecureCookie ? 'none' : 'lax',
     path: '/',
   });
 };
