@@ -997,6 +997,18 @@ export async function deleteAppointment(req, res) {
             return res.status(404).json({ msg: "Appointment not found" })
         }
 
+        res.send(appointment)
+
+        if (appointment.status === "SCHEDULED" || appointment.status === "CONFIRMED") {
+            await prisma.appointment.update({
+              where: { id },
+              data: {
+                  status: "CANCELED",
+                  deletedAt: new Date()
+              }
+          })
+        }
+
         await prisma.appointment.update({
             where: { id },
             data: {
