@@ -89,6 +89,7 @@ model BusinessClient {
   business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
   client       Client        @relation(fields: [clientId], references: [id])
   notes        Note[]
+  activationTokens ClientActivationToken[]
 
   @@unique([businessId, clientId])
 }
@@ -96,13 +97,31 @@ model BusinessClient {
 model Client {
   id          String           @id @default(cuid())
   name        String
-  email       String?
+  email       String?          @unique
+  phone       String           @unique
+  firebaseUid String?          @unique
+  isConfirmed Boolean          @default(false)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
-  phone       String           @unique
-  isConfirmed Boolean          @default(false)
-  firebaseUid String? @unique
   businesses  BusinessClient[]
+
+  activationTokens ClientActivationToken[]
+}
+
+model ClientActivationToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  clientId  String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  businessClientId String
+
+  client         Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  businessClient BusinessClient @relation(fields: [businessClientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([businessClientId])
 }
 
 model Appointment {

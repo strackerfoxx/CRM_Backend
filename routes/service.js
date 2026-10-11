@@ -2,7 +2,7 @@ import express from "express";
 const router = express.Router();
 import { body } from "express-validator";
 
-import { createService, getServices, getServiceById, updateService, deleteService, getServicesParams } from "../controllers/serviceController.js";
+import { createService, getServices, getServiceById, updateService, deleteService, getServicesParams, uploadImage } from "../controllers/serviceController.js";
 
 import { deepClean } from "../middlewares/deepClean.js";
 import { auth } from "../middlewares/auth.js"
@@ -16,6 +16,12 @@ const clientValidation = [
     .notEmpty().withMessage('The dutation in minutes is required')
     .isFloat({min: 1}).withMessage('The price must be a number')
 ]
+
+
+router.get("/upload-image", uploadImage)
+
+
+
 
 router.post("/create", auth, deepClean, clientValidation, createService)
 router.get("/get-services", auth, getServices)

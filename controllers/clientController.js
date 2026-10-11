@@ -2,9 +2,18 @@ import { validationResult } from 'express-validator';
 import prisma from '../helpers/prisma.js'
 
 import jwt from "jsonwebtoken"
+import crypto from "crypto"
 
-import { verifyFirebasePhoneToken } from "../middlewares/firebaseAuth.js"
-import { parseCookies, generateAccessToken, generateRefreshToken, setRefreshTokenCookie, clearRefreshTokenCookie } from "../helpers/tokenService.js";
+import { verifyFirebasePhoneToken, verifyFirebaseToken } from "../middlewares/firebaseAuth.js"
+import { 
+    parseCookies, 
+    generateAccessToken, 
+    generateRefreshToken, 
+    setRefreshTokenCookie, 
+    clearRefreshTokenCookie
+} from "../helpers/tokenService.js";
+
+import { generateActivationToken } from "../helpers/activationToken.js";
 
 export async function createClient(req, res) {
     const { name, email, phone, businessId } = req.body
@@ -66,7 +75,9 @@ export async function createClient(req, res) {
 
 
 export async function createClientSelfService(req, res) {
-    const { name, email, phone, businessId } = req.body
+    const { name, phone, businessId, idToken } = req.body
+
+    verifyFirebaseToken(idToken)
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -124,6 +135,284 @@ export async function createClientSelfService(req, res) {
         return res.status(500).json(error)
     }
 }
+
+export async function createClientActivation(req, res) {
+    const { businessClientId } = req.params;
+    const businessId = req.user.businessId;
+
+    try {
+        const businessClient = await prisma.businessClient.findUnique({
+            where: {
+                id: businessClientId,
+                businessId: businessId
+            },
+            include: {
+                client: true
+            }
+        });
+
+        if (!businessClient) {
+            return res.status(404).json({
+                msg: "Client not found for this business"
+            });
+        }
+
+        if (businessClient.deletedAt) {
+            return res.status(403).json({
+                msg: "Client is deactivated"
+            });
+        }
+
+        const client = businessClient.client;
+
+        if (client.firebaseUid) {
+            return res.status(409).json({
+                msg: "Client account is already activated"
+            });
+        }
+        
+        // Invalidar invitaciones anteriores
+        await prisma.clientActivationToken.updateMany({
+            where: {
+                clientId: client.id,
+                usedAt: null
+            },
+            data: {
+                usedAt: new Date()
+            }
+        });
+
+        const { token, tokenHash } = generateActivationToken();
+
+        const activationToken = await prisma.clientActivationToken.create({
+            data: {
+                clientId: client.id,
+                businessClientId: businessClient.id,
+                tokenHash,
+                expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+            }
+        });
+        console.log("Activation token created: ", activationToken);
+
+        const activationUrl = `${process.env.FRONTEND_ORIGIN}/activar/${token}`;
+
+        return res.status(201).json({
+            msg: "Activation link created successfully",
+            activationUrl,
+            expiresAt: activationToken.expiresAt
+        });
+
+    } catch (error) {
+        console.error("Error creating client activation:", error);
+
+        return res.status(500).json({
+            msg: "Failed to create activation link"
+        });
+    }
+}
+
+
+export async function activateClient(req, res) {
+    const { activationToken, idToken } = req.body;
+
+    try {
+        if (!activationToken || !idToken) {
+            return res.status(400).json({
+                msg: "Activation token and Firebase ID token are required"
+            });
+        }
+
+        // 1. Buscar la invitación mediante el hash del token.
+        const tokenHash = crypto
+            .createHash("sha256")
+            .update(activationToken)
+            .digest("hex");
+
+        const activation = await prisma.clientActivationToken.findUnique({
+            where: { tokenHash },
+            include: {
+                client: true,
+                businessClient: true
+            }
+        });
+
+        if (!activation) {
+            return res.status(404).json({
+                msg: "Invalid activation link"
+            });
+        }
+
+        if (activation.usedAt) {
+            return res.status(409).json({
+                msg: "Activation link has already been used"
+            });
+        }
+
+        if (activation.expiresAt <= new Date()) {
+            return res.status(410).json({
+                msg: "Activation link has expired"
+            });
+        }
+
+        const client = activation.client;
+        const businessClient = activation.businessClient;
+
+        // 2. Validar que la relación corresponda al cliente.
+        if (
+            !businessClient ||
+            businessClient.clientId !== client.id ||
+            businessClient.deletedAt
+        ) {
+            return res.status(403).json({
+                msg: "Business client relationship is unavailable"
+            });
+        }
+
+        if (client.firebaseUid) {
+            return res.status(409).json({
+                msg: "Client account is already activated"
+            });
+        }
+
+        // 3. Verificar la identidad con Firebase Admin.
+        const decodedToken = await verifyFirebaseToken(idToken);
+
+        const firebaseUid = decodedToken.uid;
+        const email = decodedToken.email;
+
+        if (!email || decodedToken.email_verified !== true) {
+            return res.status(400).json({
+                msg: "A verified email is required"
+            });
+        }
+
+        // 4. Comprobar si la identidad ya pertenece a otro cliente.
+        const [existingFirebaseClient, existingEmailClient] =
+            await Promise.all([
+                prisma.client.findUnique({
+                    where: { firebaseUid }
+                }),
+                prisma.client.findUnique({
+                    where: { email }
+                })
+            ]);
+
+        if (
+            existingFirebaseClient &&
+            existingFirebaseClient.id !== client.id
+        ) {
+            return res.status(409).json({
+                msg: "This Google account is already linked to another client"
+            });
+        }
+
+        if (
+            existingEmailClient &&
+            existingEmailClient.id !== client.id
+        ) {
+            return res.status(409).json({
+                msg: "This email is already linked to another client"
+            });
+        }
+
+        // 5. Vincular la cuenta y consumir la invitación atómicamente.
+        const updatedClient = await prisma.$transaction(async (tx) => {
+            // Reclamar la invitación solo si sigue vigente y sin usar.
+            const claimedToken = await tx.clientActivationToken.updateMany({
+                where: {
+                    id: activation.id,
+                    usedAt: null,
+                    expiresAt: {
+                        gt: new Date()
+                    }
+                },
+                data: {
+                    usedAt: new Date()
+                }
+            });
+
+            if (claimedToken.count !== 1) {
+                throw new Error("ACTIVATION_TOKEN_UNAVAILABLE");
+            }
+
+            // Evitar vincular el UID a un cliente que ya fue activado.
+            const updated = await tx.client.updateMany({
+                where: {
+                    id: activation.clientId,
+                    firebaseUid: null
+                },
+                data: {
+                    firebaseUid,
+                    email,
+                    isConfirmed: true
+                }
+            });
+
+            if (updated.count !== 1) {
+                throw new Error("CLIENT_ALREADY_ACTIVATED");
+            }
+
+            return await tx.client.findUniqueOrThrow({
+                where: {
+                    id: activation.clientId
+                }
+            });
+        });
+
+        // 6. Generar la sesión para el negocio de la invitación.
+        const token = generateAccessToken({
+            id: businessClient.id,
+            name: updatedClient.name,
+            businessId: businessClient.businessId
+        });
+
+        const refreshToken = generateRefreshToken({
+            id: businessClient.id,
+            type: "client"
+        });
+
+        setRefreshTokenCookie(res, refreshToken);
+
+        // 7. Responder con los datos que necesita el frontend.
+        const clientData = {
+            businessClient: businessClient.id,
+            name: updatedClient.name,
+            businessId: businessClient.businessId
+        };
+
+        return res.status(200).json({
+            msg: "Client account activated successfully",
+            token,
+            client: clientData
+        });
+
+    } catch (error) {
+        if (error.message === "ACTIVATION_TOKEN_UNAVAILABLE") {
+            return res.status(409).json({
+                msg: "Activation link has expired or has already been used"
+            });
+        }
+
+        if (error.message === "CLIENT_ALREADY_ACTIVATED") {
+            return res.status(409).json({
+                msg: "Client account has already been activated"
+            });
+        }
+
+        if (error.code === "P2002") {
+            return res.status(409).json({
+                msg: "This Google account or email is already linked to another client"
+            });
+        }
+
+        console.error("Error activating client:", error);
+
+        return res.status(500).json({
+            msg: "Failed to activate client account"
+        });
+    }
+}
+
 
 export async function confirmClient(req, res) {
     const { phone, idToken, businessId } = req.body;
