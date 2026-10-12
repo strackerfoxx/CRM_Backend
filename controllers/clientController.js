@@ -51,12 +51,15 @@ export async function createClient(req, res) {
             return res.status(201).json({ msg: "Client linked successfully", client: newBusinessClient})
         }
         // if not we create the client and the relation with the business
+        // A business-created CRM record is not yet an authenticated client account.
+        // Keep it unconfirmed until the client completes the activation flow.
         const newClient = await prisma.client.create({
-            data: { 
-                name, 
-                email, 
-                phone, 
-                isConfirmed: true,
+            data: {
+                name,
+                email: null,
+                phone,
+                isConfirmed: false,
+                firebaseUid: null
             }
         })
         const newBusinessClient = await prisma.businessClient.create({
@@ -75,64 +78,146 @@ export async function createClient(req, res) {
 
 
 export async function createClientSelfService(req, res) {
-    const { name, phone, businessId, idToken } = req.body
-
-    verifyFirebaseToken(idToken)
+    const { name, phone, businessId, idToken } = req.body;
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
         return res.status(400).json({ errors: errors.array() });
     }
-    try {
-        // we check if the client already exists in the business
-        const client = await prisma.client.findUnique({
-            where: { phone },
-            include: { businesses: true }
-        })
 
-        if(client){
-            // if the client exists we check if it is already associated with the business
-            const existingRelation = client.businesses.find(b => b.businessId === businessId);
-            if(existingRelation) {
-                if (existingRelation.deletedAt !== null) {
-                    // Reactivate the client
-                    const reactivatedClient = await prisma.businessClient.update({
+    if (!idToken || !name || !phone || !businessId) {
+        return res.status(400).json({
+            msg: "Name, phone, businessId and Firebase ID token are required"
+        });
+    }
+
+    let decodedToken;
+    try {
+        decodedToken = await verifyFirebaseToken(idToken);
+    } catch (error) {
+        return res.status(401).json({
+            msg: "Invalid Firebase ID token"
+        });
+    }
+
+    const email = decodedToken.email?.trim().toLowerCase();
+
+    if (!email || decodedToken.email_verified !== true) {
+        return res.status(401).json({
+            msg: "A verified email is required"
+        });
+    }
+
+    try {
+        const existingByUid = await prisma.client.findUnique({
+            where: { firebaseUid: decodedToken.uid }
+        });
+
+        if (existingByUid) {
+            const existingRelation = await prisma.businessClient.findUnique({
+                where: {
+                    businessId_clientId: {
+                        businessId,
+                        clientId: existingByUid.id
+                    }
+                }
+            });
+
+            if (existingRelation) {
+                if (existingRelation.deletedAt) {
+                    const reactivated = await prisma.businessClient.update({
                         where: { id: existingRelation.id },
                         data: { deletedAt: null }
                     });
-                    return res.status(200).json({ msg: "Client reactivated successfully", client: reactivatedClient });
-                } else {
-                    return res.status(409).json({ msg: "Client already exists" });
+                    return res.status(200).json({
+                        msg: "Client reactivated successfully",
+                        client: reactivated
+                    });
                 }
+
+                return res.status(409).json({ msg: "Client already exists for this business" });
             }
-            // if not we create the relation with the business
-            const newBusinessClient = await prisma.businessClient.create({
-                data: { clientId: client.id, businessId }
-            })
-            return res.status(201).json({ msg: "Client linked successfully", client: newBusinessClient})
+
+            const relation = await prisma.businessClient.create({
+                data: { clientId: existingByUid.id, businessId }
+            });
+
+            return res.status(201).json({
+                msg: "Client linked successfully",
+                client: relation
+            });
         }
 
-        // if not we create the client and the relation with the business
-        const newClient = await prisma.client.create({
-            data: {
-                name, 
-                email, 
-                phone, 
-                isConfirmed: false,
-                firebaseUid: null
-            }
-        })
-        const newBusinessClient = await prisma.businessClient.create({
-            data: { clientId: newClient.id, businessId }
-        })
+        // Do not link an existing phone-only CRM record based on phone alone.
+        // That record must be claimed through its one-time activation link.
+        const existingByPhone = await prisma.client.findUnique({
+            where: { phone }
+        });
 
-        return res.status(201).json({ msg: "Client created, waiting for phone confirmation", client: newBusinessClient})
-        
+        if (existingByPhone) {
+            return res.status(409).json({
+                msg: "A client with this phone already exists. Ask the business for an account activation link."
+            });
+        }
+
+        const existingByEmail = await prisma.client.findUnique({
+            where: { email }
+        });
+
+        if (existingByEmail) {
+            return res.status(409).json({
+                msg: "This email is already associated with another client"
+            });
+        }
+
+        const result = await prisma.$transaction(async (tx) => {
+            const client = await tx.client.create({
+                data: {
+                    name,
+                    phone,
+                    email,
+                    firebaseUid: decodedToken.uid,
+                    isConfirmed: true
+                }
+            });
+
+            const businessClient = await tx.businessClient.create({
+                data: { clientId: client.id, businessId }
+            });
+
+            return { client, businessClient };
+        });
+
+        const accessToken = generateAccessToken({
+            id: result.businessClient.id,
+            name: result.client.name,
+            businessId: result.businessClient.businessId
+        });
+
+        const refreshToken = generateRefreshToken({
+            id: result.businessClient.id,
+            type: "client"
+        });
+        setRefreshTokenCookie(res, refreshToken);
+
+        return res.status(201).json({
+            msg: "Client account created successfully",
+            token: accessToken,
+            client: {
+                businessClient: result.businessClient.id,
+                name: result.client.name,
+                businessId: result.businessClient.businessId
+            }
+        });
     } catch (error) {
         if (error.code === "P2002") {
-            return res.status(409).json({ msg: "Client already exists" })
+            return res.status(409).json({
+                msg: "Phone, email or Firebase account is already associated with a client"
+            });
         }
-        return res.status(500).json(error)
+
+        console.error("Error creating self-service client:", error);
+        return res.status(500).json({ msg: "Failed to create client account" });
     }
 }
 
