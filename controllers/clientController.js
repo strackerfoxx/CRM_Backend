@@ -362,8 +362,14 @@ export async function activateClient(req, res) {
         // 3. Verificar la identidad con Firebase Admin.
         const decodedToken = await verifyFirebaseToken(idToken);
 
+        if (decodedToken.firebase?.sign_in_provider !== "google.com") {
+            return res.status(401).json({
+                msg: "Sign in with Google to activate this account"
+            });
+        }
+
         const firebaseUid = decodedToken.uid;
-        const email = decodedToken.email;
+        const email = decodedToken.email?.trim().toLowerCase();
 
         if (!email || decodedToken.email_verified !== true) {
             return res.status(400).json({
@@ -675,6 +681,12 @@ export async function loginClient(req, res) {
     } catch (error) {
         return res.status(401).json({
             msg: error.message || "Google authentication failed"
+        });
+    }
+
+    if (decodedToken.firebase?.sign_in_provider !== "google.com") {
+        return res.status(401).json({
+            msg: "Sign in with Google is required"
         });
     }
 
