@@ -474,6 +474,7 @@ export async function confirmClient(req, res) {
     }
 }
 
+/*
 export async function loginClient(req, res) {
     const { idToken, businessId } = req.body;
 
@@ -485,11 +486,9 @@ export async function loginClient(req, res) {
         }
 
         const decodedToken = await verifyFirebasePhoneToken(idToken);
-
         const phone = decodedToken.phone_number;
         const firebaseUid = decodedToken.uid;
 
-        // Buscar cliente únicamente por teléfono
         const client = await prisma.client.findUnique({
             where: { phone }
         });
@@ -500,7 +499,6 @@ export async function loginClient(req, res) {
             });
         }
 
-        // Si nunca se había vinculado a Firebase, lo vinculamos
         if (!client.firebaseUid) {
             await prisma.client.update({
                 where: { id: client.id },
@@ -509,9 +507,7 @@ export async function loginClient(req, res) {
                     isConfirmed: true
                 }
             });
-        }
-        // Si ya estaba vinculado, validamos que sea el mismo UID
-        else if (client.firebaseUid !== firebaseUid) {
+        } else if (client.firebaseUid !== firebaseUid) {
             return res.status(401).json({
                 msg: "Invalid Firebase account"
             });
@@ -568,6 +564,106 @@ export async function loginClient(req, res) {
     } catch (error) {
         return res.status(401).json({
             msg: error.message || "Firebase authentication failed"
+        });
+    }
+}
+*/
+
+export async function loginClient(req, res) {
+    const { idToken, businessId } = req.body;
+
+    if (!idToken) {
+        return res.status(400).json({
+            msg: "Firebase ID token is required"
+        });
+    }
+
+    if (!businessId) {
+        return res.status(400).json({
+            msg: "Business ID is required"
+        });
+    }
+
+    let decodedToken;
+    try {
+        decodedToken = await verifyFirebaseToken(idToken);
+    } catch (error) {
+        return res.status(401).json({
+            msg: error.message || "Google authentication failed"
+        });
+    }
+
+    if (!decodedToken.email || decodedToken.email_verified !== true) {
+        return res.status(401).json({
+            msg: "A verified Google email is required"
+        });
+    }
+
+    try {
+        const client = await prisma.client.findUnique({
+            where: { firebaseUid: decodedToken.uid }
+        });
+
+        if (!client) {
+            return res.status(404).json({
+                msg: "Google account is not linked to a client"
+            });
+        }
+
+        const businessClient = await prisma.businessClient.findUnique({
+            where: {
+                businessId_clientId: {
+                    businessId,
+                    clientId: client.id
+                }
+            },
+            include: {
+                client: {
+                    select: {
+                        name: true
+                    }
+                }
+            }
+        });
+
+        if (!businessClient) {
+            return res.status(404).json({
+                msg: "Client not found for this business"
+            });
+        }
+
+        if (businessClient.deletedAt) {
+            return res.status(403).json({
+                msg: "Client account is deactivated"
+            });
+        }
+
+        const token = generateAccessToken({
+            id: businessClient.id,
+            name: businessClient.client.name,
+            businessId: businessClient.businessId
+        });
+
+        const refreshToken = generateRefreshToken({
+            id: businessClient.id,
+            type: "client"
+        });
+        setRefreshTokenCookie(res, refreshToken);
+
+        const clientData = {
+            businessClient: businessClient.id,
+            name: businessClient.client.name,
+            businessId: businessClient.businessId
+        };
+
+        return res.status(200).json({
+            token,
+            client: clientData
+        });
+    } catch (error) {
+        console.error("Error logging in client:", error);
+        return res.status(500).json({
+            msg: "Failed to log in client"
         });
     }
 }
