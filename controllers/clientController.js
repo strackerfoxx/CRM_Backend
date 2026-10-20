@@ -235,6 +235,9 @@ export async function createClientActivation(req, res) {
                 client: true
             }
         });
+        const business = await prisma.business.findUnique({
+            where: { id: businessId }
+        });
 
         if (!businessClient) {
             return res.status(404).json({
@@ -277,9 +280,9 @@ export async function createClientActivation(req, res) {
                 expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
             }
         });
-        console.log("Activation token created: ", activationToken);
+        // console.log("Activation token created: ", activationToken);
 
-        const activationUrl = `${process.env.FRONTEND_ORIGIN}/activar/${token}`;
+        const activationUrl = `${business.domain || process.env.FRONTEND_ORIGIN}/activar-cuenta/${token}`;
 
         return res.status(201).json({
             msg: "Activation link created successfully",

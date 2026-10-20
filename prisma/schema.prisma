@@ -20,6 +20,17 @@ model Business {
   specialDays         Json?
   defaultSlotInterval Int              @default(30)
   deletedAt           DateTime?
+    // Identidad pública
+  slug                String?   @unique
+
+  // Personalización visual
+  themeKey            String   @default("default")
+  themeConfig         Json?
+  pageConfig          Json?
+
+  // Dominio asociados
+  domain              String?   @unique     
+
   appointments        Appointment[]
   blockedTimes        BlockedTime[]
   clients             BusinessClient[]
@@ -27,6 +38,7 @@ model Business {
   services            Service[]
   users               User[]
 }
+
 
 model User {
   id                  String               @id @default(cuid())

@@ -28,7 +28,7 @@ const clientValidation = [
 ]
 
 router.post('/create', clientValidation, deepClean, createClient)
-router.post('/self-create', deepClean, createClientSelfService)
+router.post('/self-create', createClientSelfService)
 
 router.post(
     "/:businessClientId/activation",
