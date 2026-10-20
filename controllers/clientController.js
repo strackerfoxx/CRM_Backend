@@ -120,6 +120,13 @@ export async function createClientSelfService(req, res) {
                         businessId,
                         clientId: existingByUid.id
                     }
+                },
+                include: {
+                    client: {
+                        select: {
+                            name: true
+                        }
+                    }
                 }
             });
 
@@ -127,24 +134,71 @@ export async function createClientSelfService(req, res) {
                 if (existingRelation.deletedAt) {
                     const reactivated = await prisma.businessClient.update({
                         where: { id: existingRelation.id },
-                        data: { deletedAt: null }
+                        data: { deletedAt: null },
+                        include: { client: { select: { name: true } } }
                     });
+                    const token = generateAccessToken({
+                        id: reactivated.id,
+                        name: reactivated.client.name,
+                        businessId: reactivated.businessId
+                    });
+                    const refreshToken = generateRefreshToken({ id: reactivated.id, type: "client" });
+                    setRefreshTokenCookie(res, refreshToken);
                     return res.status(200).json({
                         msg: "Client reactivated successfully",
-                        client: reactivated
+                        token,
+                        client: {
+                            businessClient: reactivated.id,
+                            name: reactivated.client.name,
+                            businessId: reactivated.businessId
+                        }
                     });
                 }
 
-                return res.status(409).json({ msg: "Client already exists for this business" });
+                const token = generateAccessToken({
+                    id: existingRelation.id,
+                    name: existingRelation.client.name,
+                    businessId: existingRelation.businessId
+                });
+
+                const refreshToken = generateRefreshToken({
+                    id: existingRelation.id,
+                    type: "client"
+                });
+                setRefreshTokenCookie(res, refreshToken);
+
+                const clientData = {
+                    businessClient: existingRelation.id,
+                    name: existingRelation.client.name,
+                    businessId: existingRelation.businessId
+                };
+
+                return res.status(200).json({
+                    token,
+                    client: clientData
+                });
             }
 
             const relation = await prisma.businessClient.create({
-                data: { clientId: existingByUid.id, businessId }
+                data: { clientId: existingByUid.id, businessId },
+                include: { client: { select: { name: true } } }
             });
+            const token = generateAccessToken({
+                id: relation.id,
+                name: relation.client.name,
+                businessId: relation.businessId
+            });
+            const refreshToken = generateRefreshToken({ id: relation.id, type: "client" });
+            setRefreshTokenCookie(res, refreshToken);
 
-            return res.status(201).json({
+            return res.status(200).json({
                 msg: "Client linked successfully",
-                client: relation
+                token,
+                client: {
+                    businessClient: relation.id,
+                    name: relation.client.name,
+                    businessId: relation.businessId
+                }
             });
         }
 
@@ -710,7 +764,7 @@ export async function loginClient(req, res) {
             });
         }
 
-        const businessClient = await prisma.businessClient.findUnique({
+        let businessClient = await prisma.businessClient.findUnique({
             where: {
                 businessId_clientId: {
                     businessId,
@@ -727,8 +781,18 @@ export async function loginClient(req, res) {
         });
 
         if (!businessClient) {
-            return res.status(404).json({
-                msg: "Client not found for this business"
+            businessClient = await prisma.businessClient.create({
+                data: {
+                    clientId: client.id,
+                    businessId
+                },
+                include: {
+                    client: {
+                        select: {
+                            name: true
+                        }
+                    }
+                }
             });
         }
 
