@@ -23,6 +23,15 @@ export async function createClient(req, res) {
         return res.status(400).json({ errors: errors.array() });
     }
     try {
+        const business = await prisma.business.findFirst({
+            where: { id: businessId, deletedAt: null },
+            select: { id: true }
+        });
+
+        if (!business) {
+            return res.status(404).json({ msg: "Business not found" });
+        }
+
         // we check if the client already exists in the business
         const client = await prisma.client.findUnique({
             where: { phone },
@@ -109,6 +118,15 @@ export async function createClientSelfService(req, res) {
     }
 
     try {
+        const business = await prisma.business.findFirst({
+            where: { id: businessId, deletedAt: null },
+            select: { id: true }
+        });
+
+        if (!business) {
+            return res.status(404).json({ msg: "Business not found" });
+        }
+
         const existingByUid = await prisma.client.findUnique({
             where: { firebaseUid: decodedToken.uid }
         });
@@ -290,10 +308,10 @@ export async function createClientActivation(req, res) {
             }
         });
         const business = await prisma.business.findUnique({
-            where: { id: businessId }
+            where: { id: businessId, deletedAt: null }
         });
 
-        if (!businessClient) {
+        if (!businessClient || !business) {
             return res.status(404).json({
                 msg: "Client not found for this business"
             });
@@ -307,7 +325,7 @@ export async function createClientActivation(req, res) {
 
         const client = businessClient.client;
 
-        if (client.firebaseUid) {
+        if (client.isConfirmed !== false || client.firebaseUid !== null) {
             return res.status(409).json({
                 msg: "Client account is already activated"
             });
@@ -410,7 +428,7 @@ export async function activateClient(req, res) {
             });
         }
 
-        if (client.firebaseUid) {
+        if (client.isConfirmed !== false || client.firebaseUid !== null) {
             return res.status(409).json({
                 msg: "Client account is already activated"
             });
@@ -487,7 +505,8 @@ export async function activateClient(req, res) {
             const updated = await tx.client.updateMany({
                 where: {
                     id: activation.clientId,
-                    firebaseUid: null
+                    firebaseUid: null,
+                    isConfirmed: false
                 },
                 data: {
                     firebaseUid,
@@ -572,6 +591,10 @@ export async function confirmClient(req, res) {
             return res.status(404).json({ msg: "Client not found" });
         }
 
+        if (client.isConfirmed !== false || client.firebaseUid !== null) {
+            return res.status(409).json({ msg: "Client account is already confirmed" });
+        }
+
         const decodedToken = await verifyFirebasePhoneToken(idToken);
         if (decodedToken.phone_number !== phone) {
             return res.status(400).json({ msg: "Phone number does not match verified token" });
@@ -593,13 +616,21 @@ export async function confirmClient(req, res) {
             return res.status(404).json({ msg: "Business client relation not found" });
         }
 
-        await prisma.client.update({
-            where: { phone },
+        const confirmed = await prisma.client.updateMany({
+            where: {
+                id: client.id,
+                isConfirmed: false,
+                firebaseUid: null
+            },
             data: {
                 isConfirmed: true,
                 firebaseUid: decodedToken.uid
             }
         });
+
+        if (confirmed.count !== 1) {
+            return res.status(409).json({ msg: "Client account is already confirmed" });
+        }
 
         const token = generateAccessToken({
             id: businessClient.id,
@@ -754,6 +785,15 @@ export async function loginClient(req, res) {
     }
 
     try {
+        const business = await prisma.business.findFirst({
+            where: { id: businessId, deletedAt: null },
+            select: { id: true }
+        });
+
+        if (!business) {
+            return res.status(404).json({ msg: "Business not found" });
+        }
+
         const client = await prisma.client.findUnique({
             where: { firebaseUid: decodedToken.uid }
         });
