@@ -6,6 +6,10 @@ export function deepClean(req, res, next) {
       const val = obj[key];
 
       if (typeof val === 'string') {
+        if (key === 'idToken') {
+          continue;
+        }
+
         if (key === 'name' || key === "password" || key === "role") {
           // Solo trim para req.body.name
           obj[key] = val.trim();

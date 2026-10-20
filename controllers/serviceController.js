@@ -1,5 +1,35 @@
 import { validationResult } from 'express-validator';
 import prisma from '../helpers/prisma.js'
+import { v2 as cloudinary } from "cloudinary";
+
+// Return "https" URLs by setting secure: true
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true
+});
+
+export async function uploadImage(req, res) {
+    try {
+        const result = await cloudinary.uploader.upload(
+    "./assets/gato.jpeg",
+    {
+        folder: "test"
+    }
+);
+
+console.log(result);
+    } catch (error) {
+    console.log("ERROR COMPLETO:");
+    console.log(error);
+    console.log("MESSAGE:", error.message);
+    console.log("HTTP CODE:", error.http_code);
+    console.log("NAME:", error.name);
+    console.log("STACK:", error.stack);
+}
+}
+
 
 
 export async function createService(req, res) {

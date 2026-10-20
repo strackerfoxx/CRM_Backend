@@ -12,7 +12,9 @@ import {
     refreshTokenClient,
     logoutClient,
     updateClient,
-    getClientParams
+    getClientParams,
+    createClientActivation,
+    activateClient
 } from "../controllers/clientController.js"
 
 import { deepClean } from "../middlewares/deepClean.js";
@@ -26,17 +28,15 @@ const clientValidation = [
 ]
 
 router.post('/create', clientValidation, deepClean, createClient)
-router.post('/self-create', deepClean, createClientSelfService)
+router.post('/self-create', createClientSelfService)
 
-router.post('/confirm-client',
-    [
-        body('phone')
-        .notEmpty().withMessage('The phone number is required')
-        .isMobilePhone().withMessage('The phone number is not valid'),
-        body('idToken').notEmpty().withMessage('Firebase idToken is required')
-    ],
-    confirmClient
-)
+router.post(
+    "/:businessClientId/activation",
+    auth,
+    createClientActivation
+);
+router.post('/activation', activateClient)
+
 router.post('/login',loginClient)
 router.post('/refresh', refreshTokenClient)
 router.post('/logout', logoutClient)

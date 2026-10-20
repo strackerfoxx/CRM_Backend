@@ -42,3 +42,13 @@ export async function verifyFirebasePhoneToken(idToken) {
 
   return decodedToken;
 }
+
+export async function verifyFirebaseToken(idToken) {
+    if (!idToken) {
+        throw new Error("Firebase ID token is required");
+    }
+
+    const app = getFirebaseApp();
+
+    return await app.auth().verifyIdToken(idToken, true);
+}
