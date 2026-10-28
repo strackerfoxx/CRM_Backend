@@ -26,6 +26,13 @@ describe('Analytics Unit & Integration Tests', () => {
       assert.equal(diffDays, 30);
     });
 
+    test('parseDateRange handles non-UTC timezone boundaries correctly', () => {
+      const { startDate, endDate } = parseDateRange('2025-01-01', '2025-01-31', 'America/Santiago');
+      assert.ok(startDate instanceof Date);
+      assert.ok(endDate instanceof Date);
+      assert.ok(startDate < endDate);
+    });
+
     test('parseDateRange throws INVALID_TIMEZONE for invalid timezone', () => {
       assert.throws(
         () => parseDateRange('2025-01-01', '2025-01-31', 'Invalid/Timezone'),
@@ -118,7 +125,6 @@ describe('Analytics Unit & Integration Tests', () => {
             return 25;
           },
           groupBy: async ({ where }) => {
-            // Range candidate query for curr vs prev or prior query
             if (where.date?.gte && where.date?.lte) {
               if (where.date.gte.toISOString().startsWith('2025-01-01')) {
                 return [{ businessClientId: 'client-curr-new' }, { businessClientId: 'client-existing' }];
@@ -127,7 +133,6 @@ describe('Analytics Unit & Integration Tests', () => {
               }
             }
             if (where.date?.lt) {
-              // Prior check: client-existing had prior appointments, client-curr-new did not
               if (where.businessClientId?.in?.includes('client-existing')) {
                 return [{ businessClientId: 'client-existing' }];
               }
@@ -297,7 +302,6 @@ describe('Analytics Unit & Integration Tests', () => {
         },
       ];
 
-      // Appointment assigned to emp-1 at app level, with service 1 assigned to emp-1 and service 2 assigned to emp-2
       const mockAllAppointments = [
         {
           id: 'app-1',
@@ -349,6 +353,48 @@ describe('Analytics Unit & Integration Tests', () => {
       assert.equal(emp2.assignedAppointments, 1);
       assert.equal(emp2.occupiedMinutes, 30); // only emp-2 service duration counted
       assert.equal(emp2.availableWorkingMinutes, 480);
+    });
+
+    test('attributes unassigned services to appointment-level employee when app.userId is present', async () => {
+      const mockEmployees = [
+        {
+          id: 'emp-app-level',
+          name: 'App Level User',
+          businessId: 'biz-123',
+          schedules: [
+            { dayOfWeek: 'monday', startTime: '09:00', endTime: '17:00' },
+          ],
+        },
+      ];
+
+      const mockAllAppointments = [
+        {
+          id: 'app-unassigned-srv',
+          userId: 'emp-app-level',
+          status: 'COMPLETED',
+          durationMin: 45,
+          services: [
+            { userId: null, service: { durationMin: 45, cleaningTimeMin: 0 } },
+          ],
+        },
+      ];
+
+      const mockPrisma = {
+        user: { findMany: async () => mockEmployees },
+        blockedTime: { findMany: async () => [] },
+        appointment: { findMany: async () => mockAllAppointments },
+        appointmentService: { findMany: async () => [] },
+      };
+
+      setPrismaClientForTesting(mockPrisma);
+
+      const res = await getEmployeeAnalyticsData('biz-123', {
+        startDate: '2025-01-06',
+        endDate: '2025-01-06',
+        timezone: 'UTC',
+      });
+
+      assert.equal(res[0].occupiedMinutes, 45);
     });
 
     test('returns occupancyRate null when employee has no schedule or 0 working minutes', async () => {
