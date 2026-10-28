@@ -9,10 +9,16 @@ export function setPrismaClientForTesting(mockPrisma) {
 }
 
 /**
- * Validates and parses start and end dates.
+ * Validates and parses start and end dates with timezone validation.
  * Defaults to the last 30 days if omitted.
  */
 export function parseDateRange(startDateStr, endDateStr, timezone = 'UTC') {
+  if (!timezone || typeof timezone !== 'string' || !DateTime.now().setZone(timezone).isValid) {
+    const err = new Error('Invalid timezone parameter');
+    err.code = 'INVALID_TIMEZONE';
+    throw err;
+  }
+
   let endDate;
   if (endDateStr) {
     const parsedEnd = DateTime.fromISO(endDateStr, { zone: timezone });
@@ -76,6 +82,52 @@ export function calculateMetricComparison(current, previous) {
 }
 
 /**
+ * Merges overlapping/adjacent blocked time intervals and clips them to working schedule.
+ */
+export function mergeAndClipBlockedIntervals(dayBlocks, schedStart, schedEnd) {
+  const intervals = [];
+
+  for (const b of dayBlocks) {
+    const bStart = parseHourToMinutes(b.start);
+    const bEnd = parseHourToMinutes(b.end);
+
+    if (isNaN(bStart) || isNaN(bEnd) || bEnd <= bStart) continue;
+
+    const start = Math.max(schedStart, bStart);
+    const end = Math.min(schedEnd, bEnd);
+
+    if (end > start) {
+      intervals.push({ start, end });
+    }
+  }
+
+  if (intervals.length === 0) return 0;
+
+  intervals.sort((a, b) => a.start - b.start);
+
+  const merged = [];
+  for (const interval of intervals) {
+    if (merged.length === 0) {
+      merged.push({ ...interval });
+    } else {
+      const last = merged[merged.length - 1];
+      if (interval.start <= last.end) {
+        last.end = Math.max(last.end, interval.end);
+      } else {
+        merged.push({ ...interval });
+      }
+    }
+  }
+
+  let totalBlockedMins = 0;
+  for (const item of merged) {
+    totalBlockedMins += (item.end - item.start);
+  }
+
+  return totalBlockedMins;
+}
+
+/**
  * 1. Business Overview Analytics
  */
 export async function getOverviewData(businessId, { startDate: sStr, endDate: eStr, timezone = 'UTC' }) {
@@ -116,33 +168,23 @@ export async function getOverviewData(businessId, { startDate: sStr, endDate: eS
     }),
   ]);
 
-  // C. New clients: clients whose FIRST non-canceled appointment was in the period
-  const [currGroups, prevGroups] = await Promise.all([
-    prisma.appointment.groupBy({
-      by: ['businessClientId'],
-      where: {
-        businessId,
-        deletedAt: null,
-        status: { not: 'CANCELED' },
-      },
-      _min: { date: true },
-    }),
-    prisma.appointment.groupBy({
-      by: ['businessClientId'],
-      where: {
-        businessId,
-        deletedAt: null,
-        status: { not: 'CANCELED' },
-      },
-      _min: { date: true },
-    }),
-  ]);
+  // C. New clients: clients whose FIRST non-canceled appointment date falls within the period
+  // Executed in a single efficient query
+  const clientFirstAppts = await prisma.appointment.groupBy({
+    by: ['businessClientId'],
+    where: {
+      businessId,
+      deletedAt: null,
+      status: { not: 'CANCELED' },
+    },
+    _min: { date: true },
+  });
 
-  const currNewClients = currGroups.filter(
+  const currNewClients = clientFirstAppts.filter(
     (g) => g._min.date && g._min.date >= startDate && g._min.date <= endDate
   ).length;
 
-  const prevNewClients = prevGroups.filter(
+  const prevNewClients = clientFirstAppts.filter(
     (g) => g._min.date && g._min.date >= prevStartDate && g._min.date <= prevEndDate
   ).length;
 
@@ -189,6 +231,13 @@ export async function getAppointmentsOverTimeData(businessId, { startDate: sStr,
   }
 
   const { startDate, endDate } = parseDateRange(sStr, eStr, timezone);
+
+  const diffDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays > 366) {
+    const err = new Error('Date range exceeds maximum allowed limit of 366 days');
+    err.code = 'DATE_RANGE_EXCEEDED';
+    throw err;
+  }
 
   const appointments = await prisma.appointment.findMany({
     where: {
@@ -267,9 +316,9 @@ export async function getAppointmentsOverTimeData(businessId, { startDate: sStr,
  * 3. Top Services
  */
 export async function getTopServicesData(businessId, { startDate: sStr, endDate: eStr, limit: limitRaw = 5, timezone = 'UTC' }) {
-  const limit = Number(limitRaw);
-  if (isNaN(limit) || limit < 1) {
-    const err = new Error('Limit must be a positive integer');
+  const limitNum = Number(limitRaw);
+  if (isNaN(limitNum) || !Number.isInteger(limitNum) || limitNum < 1 || limitNum > 50) {
+    const err = new Error('Limit must be an integer between 1 and 50');
     err.code = 'INVALID_LIMIT';
     throw err;
   }
@@ -320,7 +369,7 @@ export async function getTopServicesData(businessId, { startDate: sStr, endDate:
 
   const sortedServices = Array.from(serviceCounts.values())
     .sort((a, b) => b.bookings - a.bookings)
-    .slice(0, limit);
+    .slice(0, limitNum);
 
   return sortedServices.map((s) => ({
     serviceId: s.serviceId,
@@ -419,7 +468,15 @@ export async function getEmployeeAnalyticsData(businessId, { startDate: sStr, en
           occupiedMinutes += (s.service?.durationMin || 0) + (s.service?.cleaningTimeMin || 0);
         }
       } else if (app.userId === emp.id) {
-        occupiedMinutes += app.durationMin || (app.endTimeMinutes - app.startTimeMinutes) || 0;
+        if (app.services.length === 0) {
+          occupiedMinutes += app.durationMin || (app.endTimeMinutes - app.startTimeMinutes) || 0;
+        } else {
+          // If app has services, sum duration for services unassigned to any specific user
+          const unassignedServices = app.services.filter((s) => !s.userId);
+          for (const s of unassignedServices) {
+            occupiedMinutes += (s.service?.durationMin || 0) + (s.service?.cleaningTimeMin || 0);
+          }
+        }
       }
     }
 
@@ -437,27 +494,19 @@ export async function getEmployeeAnalyticsData(businessId, { startDate: sStr, en
         const schedEnd = parseHourToMinutes(schedule.endTime);
 
         if (!isNaN(schedStart) && !isNaN(schedEnd) && schedEnd > schedStart) {
-          let dayWorkingMins = schedEnd - schedStart;
+          const totalSchedMins = schedEnd - schedStart;
 
-          // Subtract blocked times on this day for emp or business-wide
+          // Find blocked times on this day for employee or business-wide
           const dayBlocks = blockedTimes.filter((b) => {
             const bDateLuxon = DateTime.fromJSDate(b.date).setZone(timezone);
             return bDateLuxon.toISODate() === currDay.toISODate() && (!b.userId || b.userId === emp.id);
           });
 
-          for (const b of dayBlocks) {
-            const bStart = parseHourToMinutes(b.start);
-            const bEnd = parseHourToMinutes(b.end);
-            if (!isNaN(bStart) && !isNaN(bEnd)) {
-              const overlapStart = Math.max(schedStart, bStart);
-              const overlapEnd = Math.min(schedEnd, bEnd);
-              if (overlapEnd > overlapStart) {
-                dayWorkingMins -= (overlapEnd - overlapStart);
-              }
-            }
-          }
+          // Merge overlapping blocked intervals clipped to schedule
+          const totalBlockedMins = mergeAndClipBlockedIntervals(dayBlocks, schedStart, schedEnd);
 
-          availableWorkingMinutes += Math.max(0, dayWorkingMins);
+          const dayWorkingMins = Math.max(0, totalSchedMins - totalBlockedMins);
+          availableWorkingMinutes += dayWorkingMins;
         }
       }
 

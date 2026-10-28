@@ -13,7 +13,7 @@ export async function getOverview(req, res) {
 
     return res.status(200).json(overview);
   } catch (error) {
-    if (error.code === 'INVALID_DATES') {
+    if (error.code === 'INVALID_DATES' || error.code === 'INVALID_TIMEZONE') {
       return res.status(400).json({ error: error.message });
     }
     console.error('Error in getOverview controller:', error);
@@ -35,7 +35,12 @@ export async function getAppointmentsOverTime(req, res) {
 
     return res.status(200).json(data);
   } catch (error) {
-    if (error.code === 'INVALID_DATES' || error.code === 'INVALID_INTERVAL') {
+    if (
+      error.code === 'INVALID_DATES' ||
+      error.code === 'INVALID_TIMEZONE' ||
+      error.code === 'INVALID_INTERVAL' ||
+      error.code === 'DATE_RANGE_EXCEEDED'
+    ) {
       return res.status(400).json({ error: error.message });
     }
     console.error('Error in getAppointmentsOverTime controller:', error);
@@ -57,7 +62,11 @@ export async function getTopServices(req, res) {
 
     return res.status(200).json(data);
   } catch (error) {
-    if (error.code === 'INVALID_DATES' || error.code === 'INVALID_LIMIT') {
+    if (
+      error.code === 'INVALID_DATES' ||
+      error.code === 'INVALID_TIMEZONE' ||
+      error.code === 'INVALID_LIMIT'
+    ) {
       return res.status(400).json({ error: error.message });
     }
     console.error('Error in getTopServices controller:', error);
@@ -79,7 +88,11 @@ export async function getEmployeeAnalytics(req, res) {
 
     return res.status(200).json(data);
   } catch (error) {
-    if (error.code === 'INVALID_DATES' || error.code === 'UNAUTHORIZED_EMPLOYEE') {
+    if (
+      error.code === 'INVALID_DATES' ||
+      error.code === 'INVALID_TIMEZONE' ||
+      error.code === 'UNAUTHORIZED_EMPLOYEE'
+    ) {
       return res.status(400).json({ error: error.message });
     }
     console.error('Error in getEmployeeAnalytics controller:', error);

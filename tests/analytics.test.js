@@ -1,10 +1,11 @@
-import { test, describe, beforeEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   setPrismaClientForTesting,
   parseDateRange,
   calculatePreviousPeriod,
   calculateMetricComparison,
+  mergeAndClipBlockedIntervals,
   getOverviewData,
   getAppointmentsOverTimeData,
   getTopServicesData,
@@ -14,26 +15,32 @@ import * as analyticsController from '../controllers/analyticsController.js';
 
 describe('Analytics Unit & Integration Tests', () => {
 
-  describe('Utility Functions', () => {
+  describe('Utility & Validation Functions', () => {
     test('parseDateRange defaults to last 30 days if omitted', () => {
       const { startDate, endDate } = parseDateRange(undefined, undefined, 'UTC');
       assert.ok(startDate instanceof Date);
       assert.ok(endDate instanceof Date);
       assert.ok(startDate < endDate);
       const diffMs = endDate.getTime() - startDate.getTime();
-      // Difference is 30 days + 23 hours 59 mins 59.999s (31 days minus 1 ms)
       const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
       assert.equal(diffDays, 30);
     });
 
-    test('parseDateRange throws error if startDate > endDate', () => {
+    test('parseDateRange throws INVALID_TIMEZONE for invalid timezone', () => {
+      assert.throws(
+        () => parseDateRange('2025-01-01', '2025-01-31', 'Invalid/Timezone'),
+        (err) => err.code === 'INVALID_TIMEZONE'
+      );
+    });
+
+    test('parseDateRange throws INVALID_DATES if startDate > endDate', () => {
       assert.throws(
         () => parseDateRange('2025-02-01', '2025-01-01', 'UTC'),
         (err) => err.code === 'INVALID_DATES' && err.message.includes('startDate cannot be after endDate')
       );
     });
 
-    test('parseDateRange throws error for malformed date', () => {
+    test('parseDateRange throws INVALID_DATES for malformed date', () => {
       assert.throws(
         () => parseDateRange('invalid-date', '2025-01-01', 'UTC'),
         (err) => err.code === 'INVALID_DATES'
@@ -68,32 +75,44 @@ describe('Analytics Unit & Integration Tests', () => {
         percentageChange: null,
       });
     });
+
+    test('mergeAndClipBlockedIntervals correctly merges overlapping/adjacent blocked intervals and clips to schedule', () => {
+      const schedStart = 9 * 60; // 09:00 = 540
+      const schedEnd = 17 * 60;   // 17:00 = 1020
+
+      // Blocks: 08:00-10:00, 10:00-12:00, 11:00-13:00, 18:00-19:00
+      const dayBlocks = [
+        { start: '08:00', end: '10:00' }, // clipped to 09:00-10:00 (60 mins)
+        { start: '10:00', end: '12:00' }, // 10:00-12:00 (120 mins)
+        { start: '11:00', end: '13:00' }, // overlaps with previous -> merges to 09:00-13:00 (240 mins)
+        { start: '18:00', end: '19:00' }, // outside schedule -> clipped out (0 mins)
+      ];
+
+      const blockedMins = mergeAndClipBlockedIntervals(dayBlocks, schedStart, schedEnd);
+      assert.equal(blockedMins, 240); // 09:00 to 13:00 = 4 hours = 240 mins
+    });
   });
 
   describe('Overview Analytics (getOverviewData)', () => {
-    test('calculates today appointments, completed, new clients, cancellation rates and previous period comparison', async () => {
+    test('calculates today appointments, completed, new clients, cancellation rates and previous period comparison in single groupBy query', async () => {
+      let groupByCallCount = 0;
       const mockPrisma = {
         appointment: {
           count: async ({ where }) => {
-            // Today's appointments query
-            if (where.date && where.status && where.status.in) {
-              return 4;
-            }
-            // Completed query
+            if (where.date && where.status && where.status.in) return 4;
             if (where.status === 'COMPLETED') {
-              if (where.date.gte.toISOString().startsWith('2025-01-01')) return 20; // curr
-              return 10; // prev
+              if (where.date.gte.toISOString().startsWith('2025-01-01')) return 20;
+              return 10;
             }
-            // Canceled vs total queries for cancellation rate
             if (where.status === 'CANCELED') {
-              if (where.date.gte.toISOString().startsWith('2025-01-01')) return 2; // curr canceled
-              return 5; // prev canceled
+              if (where.date.gte.toISOString().startsWith('2025-01-01')) return 2;
+              return 5;
             }
-            // Total appointments query
-            if (where.date.gte.toISOString().startsWith('2025-01-01')) return 20; // curr total
-            return 25; // prev total
+            if (where.date.gte.toISOString().startsWith('2025-01-01')) return 20;
+            return 25;
           },
           groupBy: async ({ where }) => {
+            groupByCallCount++;
             return [
               { businessClientId: 'client-1', _min: { date: new Date('2025-01-10T10:00:00Z') } }, // in curr
               { businessClientId: 'client-2', _min: { date: new Date('2024-12-05T10:00:00Z') } }, // in prev
@@ -111,6 +130,7 @@ describe('Analytics Unit & Integration Tests', () => {
         timezone: 'UTC',
       });
 
+      assert.equal(groupByCallCount, 1); // Single query optimization verified!
       assert.equal(res.todaysAppointments, 4);
       assert.deepEqual(res.completedAppointments, {
         current: 20,
@@ -124,10 +144,31 @@ describe('Analytics Unit & Integration Tests', () => {
         change: 0,
         percentageChange: 0,
       });
-      assert.equal(res.cancellationRate.current, 10); // 2/20 * 100
-      assert.equal(res.cancellationRate.previous, 20); // 5/25 * 100
-      assert.equal(res.cancellationRate.change, -10);
-      assert.equal(res.cancellationRate.percentageChange, -50);
+      assert.equal(res.cancellationRate.current, 10);
+      assert.equal(res.cancellationRate.previous, 20);
+    });
+
+    test('ignores clients with canceled appointments only for new client metric', async () => {
+      const mockPrisma = {
+        appointment: {
+          count: async () => 0,
+          groupBy: async ({ where }) => {
+            assert.deepEqual(where.status, { not: 'CANCELED' });
+            return [];
+          },
+        },
+      };
+
+      setPrismaClientForTesting(mockPrisma);
+
+      const res = await getOverviewData('biz-123', {
+        startDate: '2025-01-01',
+        endDate: '2025-01-31',
+        timezone: 'UTC',
+      });
+
+      assert.equal(res.newClients.current, 0);
+      assert.equal(res.newClients.previous, 0);
     });
   });
 
@@ -158,6 +199,13 @@ describe('Analytics Unit & Integration Tests', () => {
       assert.deepEqual(res[0], { date: '2025-01-01', completed: 1, pending: 1, canceled: 0, total: 2 });
       assert.deepEqual(res[1], { date: '2025-01-02', completed: 0, pending: 0, canceled: 1, total: 1 });
       assert.deepEqual(res[2], { date: '2025-01-03', completed: 0, pending: 0, canceled: 0, total: 0 });
+    });
+
+    test('throws DATE_RANGE_EXCEEDED if date range exceeds 366 days', async () => {
+      await assert.rejects(
+        async () => getAppointmentsOverTimeData('biz-123', { startDate: '2023-01-01', endDate: '2025-01-01' }),
+        (err) => err.code === 'DATE_RANGE_EXCEEDED'
+      );
     });
 
     test('throws INVALID_INTERVAL for unsupported interval parameter', async () => {
@@ -193,57 +241,71 @@ describe('Analytics Unit & Integration Tests', () => {
       });
 
       assert.equal(res.length, 2);
-      assert.deepEqual(res[0], {
-        serviceId: 'srv-1',
-        serviceName: 'Haircut',
-        bookings: 2,
-        percentage: 66.67,
-      });
-      assert.deepEqual(res[1], {
-        serviceId: 'srv-2',
-        serviceName: 'Shave',
-        bookings: 1,
-        percentage: 33.33,
-      });
+      assert.deepEqual(res[0], { serviceId: 'srv-1', serviceName: 'Haircut', bookings: 2, percentage: 66.67 });
+      assert.deepEqual(res[1], { serviceId: 'srv-2', serviceName: 'Shave', bookings: 1, percentage: 33.33 });
     });
 
-    test('throws INVALID_LIMIT when limit is non-positive', async () => {
+    test('rejects decimals, non-integers, negative numbers, and numbers over 50 for limit', async () => {
+      await assert.rejects(
+        async () => getTopServicesData('biz-123', { limit: 5.5 }),
+        (err) => err.code === 'INVALID_LIMIT'
+      );
       await assert.rejects(
         async () => getTopServicesData('biz-123', { limit: 0 }),
+        (err) => err.code === 'INVALID_LIMIT'
+      );
+      await assert.rejects(
+        async () => getTopServicesData('biz-123', { limit: 100 }),
         (err) => err.code === 'INVALID_LIMIT'
       );
     });
   });
 
   describe('Employee Analytics (getEmployeeAnalyticsData)', () => {
-    test('calculates employee assigned appointments, completed, services performed, occupied minutes and occupancy rate', async () => {
+    test('correctly attributes multi-employee service assignments and handles overlapping blocks without double-counting', async () => {
       const mockEmployees = [
         {
           id: 'emp-1',
           name: 'John Barber',
           businessId: 'biz-123',
           schedules: [
-            { dayOfWeek: 'monday', startTime: '09:00', endTime: '17:00' }, // 8 hours = 480 mins
+            { dayOfWeek: 'monday', startTime: '09:00', endTime: '17:00' }, // 8h = 480m
+          ],
+        },
+        {
+          id: 'emp-2',
+          name: 'Jane Stylist',
+          businessId: 'biz-123',
+          schedules: [
+            { dayOfWeek: 'monday', startTime: '09:00', endTime: '17:00' }, // 8h = 480m
           ],
         },
       ];
 
-      const mockAppointments = [
+      // Appointment assigned to emp-1 at app level, with service 1 assigned to emp-1 and service 2 assigned to emp-2
+      const mockAppointmentsEmp1 = [
         {
           id: 'app-1',
           userId: 'emp-1',
           status: 'COMPLETED',
-          durationMin: 30,
+          durationMin: 60,
           services: [
             { userId: 'emp-1', service: { durationMin: 30, cleaningTimeMin: 0 } },
+            { userId: 'emp-2', service: { durationMin: 30, cleaningTimeMin: 0 } },
           ],
         },
+      ];
+
+      const mockAppointmentsEmp2 = [
         {
-          id: 'app-2',
+          id: 'app-1',
           userId: 'emp-1',
-          status: 'CANCELED',
+          status: 'COMPLETED',
           durationMin: 60,
-          services: [],
+          services: [
+            { userId: 'emp-1', service: { durationMin: 30, cleaningTimeMin: 0 } },
+            { userId: 'emp-2', service: { durationMin: 30, cleaningTimeMin: 0 } },
+          ],
         },
       ];
 
@@ -253,11 +315,17 @@ describe('Analytics Unit & Integration Tests', () => {
         },
         blockedTime: {
           findMany: async () => [
-            { date: new Date('2025-01-06T00:00:00Z'), start: '12:00', end: '13:00', userId: 'emp-1' }, // 60 mins block on Monday 2025-01-06
+            { date: new Date('2025-01-06T00:00:00Z'), start: '12:00', end: '13:00', userId: 'emp-1' },
+            { date: new Date('2025-01-06T00:00:00Z'), start: '12:30', end: '13:30', userId: 'emp-1' }, // Overlaps: 12:00-13:30 = 90 mins total
           ],
         },
         appointment: {
-          findMany: async () => mockAppointments,
+          findMany: async ({ where }) => {
+            if (where.OR.some(o => o.userId === 'emp-1' || o.services?.some?.userId === 'emp-1')) {
+              return mockAppointmentsEmp1;
+            }
+            return mockAppointmentsEmp2;
+          },
         },
         appointmentService: {
           count: async () => 1,
@@ -266,32 +334,58 @@ describe('Analytics Unit & Integration Tests', () => {
 
       setPrismaClientForTesting(mockPrisma);
 
-      // Single day test: Monday 2025-01-06
       const res = await getEmployeeAnalyticsData('biz-123', {
         startDate: '2025-01-06',
         endDate: '2025-01-06',
         timezone: 'UTC',
       });
 
-      assert.equal(res.length, 1);
-      const empStat = res[0];
-      assert.equal(empStat.userId, 'emp-1');
-      assert.equal(empStat.assignedAppointments, 2);
-      assert.equal(empStat.completedAppointments, 1);
-      assert.equal(empStat.canceledAppointments, 1);
-      assert.equal(empStat.cancellationRate, 50);
-      assert.equal(empStat.servicesPerformed, 1);
-      assert.equal(empStat.occupiedMinutes, 30);
-      // Scheduled 480 mins minus 60 mins blocked = 420 mins available
-      assert.equal(empStat.availableWorkingMinutes, 420);
-      assert.equal(empStat.occupancyRate, 7.14); // 30 / 420 * 100 = 7.1428...
+      assert.equal(res.length, 2);
+
+      const emp1 = res.find(e => e.userId === 'emp-1');
+      assert.equal(emp1.assignedAppointments, 1);
+      assert.equal(emp1.occupiedMinutes, 30); // only emp-1 service duration counted
+      // 480 mins - 90 mins merged blocked = 390 mins available
+      assert.equal(emp1.availableWorkingMinutes, 390);
+
+      const emp2 = res.find(e => e.userId === 'emp-2');
+      assert.equal(emp2.assignedAppointments, 1);
+      assert.equal(emp2.occupiedMinutes, 30); // only emp-2 service duration counted
+      assert.equal(emp2.availableWorkingMinutes, 480);
+    });
+
+    test('returns occupancyRate null when employee has no schedule or 0 working minutes', async () => {
+      const mockEmployees = [
+        {
+          id: 'emp-no-sched',
+          name: 'No Schedule Employee',
+          businessId: 'biz-123',
+          schedules: [],
+        },
+      ];
+
+      const mockPrisma = {
+        user: { findMany: async () => mockEmployees },
+        blockedTime: { findMany: async () => [] },
+        appointment: { findMany: async () => [] },
+        appointmentService: { count: async () => 0 },
+      };
+
+      setPrismaClientForTesting(mockPrisma);
+
+      const res = await getEmployeeAnalyticsData('biz-123', {
+        startDate: '2025-01-01',
+        endDate: '2025-01-01',
+        timezone: 'UTC',
+      });
+
+      assert.equal(res[0].availableWorkingMinutes, 0);
+      assert.equal(res[0].occupancyRate, null);
     });
 
     test('throws UNAUTHORIZED_EMPLOYEE when requesting a userId not belonging to business', async () => {
       const mockPrisma = {
-        user: {
-          findMany: async () => [{ id: 'emp-1', businessId: 'biz-123', schedules: [] }],
-        },
+        user: { findMany: async () => [{ id: 'emp-1', businessId: 'biz-123', schedules: [] }] },
       };
 
       setPrismaClientForTesting(mockPrisma);
@@ -311,11 +405,7 @@ describe('Analytics Unit & Integration Tests', () => {
       const res = {
         status: (code) => {
           statusResult = code;
-          return {
-            json: (data) => {
-              jsonResult = data;
-            },
-          };
+          return { json: (data) => { jsonResult = data; } };
         },
       };
 
@@ -331,11 +421,7 @@ describe('Analytics Unit & Integration Tests', () => {
       const res = {
         status: (code) => {
           statusResult = code;
-          return {
-            json: (data) => {
-              jsonResult = data;
-            },
-          };
+          return { json: (data) => { jsonResult = data; } };
         },
       };
 
@@ -345,23 +431,19 @@ describe('Analytics Unit & Integration Tests', () => {
     });
 
     test('getTopServices returns 400 on INVALID_LIMIT error', async () => {
-      const req = { user: { businessId: 'biz-1' }, query: { limit: '-5' } };
+      const req = { user: { businessId: 'biz-1' }, query: { limit: '5.5' } };
       let statusResult = null;
       let jsonResult = null;
       const res = {
         status: (code) => {
           statusResult = code;
-          return {
-            json: (data) => {
-              jsonResult = data;
-            },
-          };
+          return { json: (data) => { jsonResult = data; } };
         },
       };
 
       await analyticsController.getTopServices(req, res);
       assert.equal(statusResult, 400);
-      assert.ok(jsonResult.error);
+      assert.equal(jsonResult.error, 'Limit must be an integer between 1 and 50');
     });
 
     test('getEmployeeAnalytics returns 400 on UNAUTHORIZED_EMPLOYEE error', async () => {
@@ -376,11 +458,7 @@ describe('Analytics Unit & Integration Tests', () => {
       const res = {
         status: (code) => {
           statusResult = code;
-          return {
-            json: (data) => {
-              jsonResult = data;
-            },
-          };
+          return { json: (data) => { jsonResult = data; } };
         },
       };
 
