@@ -10,6 +10,7 @@ import routerAppointment from "./routes/appointment.js";
 import routerService from "./routes/service.js";
 import routerNote from "./routes/note.js";
 import routerBlockedTime from "./routes/blockedTime.js";
+import routerAnalytics from "./routes/analytics.js";
 
 dotenv.config();
 
@@ -62,6 +63,7 @@ app.use("/api/appointment", routerAppointment);
 app.use("/api/service", routerService);
 app.use("/api/note", routerNote);
 app.use("/api/blocked-time", routerBlockedTime);
+app.use("/api/analytics", routerAnalytics);
 
 app.use((err, req, res, next) => {
   console.error(err);
