@@ -9,10 +9,10 @@ export function setPrismaClientForTesting(mockPrisma) {
 }
 
 /**
- * Validates and parses start and end dates with timezone validation.
+ * Validates and parses start and end dates with timezone validation and max range checks.
  * Defaults to the last 30 days if omitted.
  */
-export function parseDateRange(startDateStr, endDateStr, timezone = 'UTC') {
+export function parseDateRange(startDateStr, endDateStr, timezone = 'UTC', maxDays = 366) {
   if (!timezone || typeof timezone !== 'string' || !DateTime.now().setZone(timezone).isValid) {
     const err = new Error('Invalid timezone parameter');
     err.code = 'INVALID_TIMEZONE';
@@ -48,6 +48,13 @@ export function parseDateRange(startDateStr, endDateStr, timezone = 'UTC') {
   if (startDate > endDate) {
     const err = new Error('startDate cannot be after endDate');
     err.code = 'INVALID_DATES';
+    throw err;
+  }
+
+  const diffDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays > maxDays) {
+    const err = new Error(`Date range exceeds maximum allowed limit of ${maxDays} days`);
+    err.code = 'DATE_RANGE_EXCEEDED';
     throw err;
   }
 
@@ -131,7 +138,7 @@ export function mergeAndClipBlockedIntervals(dayBlocks, schedStart, schedEnd) {
  * 1. Business Overview Analytics
  */
 export async function getOverviewData(businessId, { startDate: sStr, endDate: eStr, timezone = 'UTC' }) {
-  const { startDate, endDate } = parseDateRange(sStr, eStr, timezone);
+  const { startDate, endDate } = parseDateRange(sStr, eStr, timezone, 366);
   const { prevStartDate, prevEndDate } = calculatePreviousPeriod(startDate, endDate);
 
   const nowLuxon = DateTime.now().setZone(timezone);
@@ -169,24 +176,61 @@ export async function getOverviewData(businessId, { startDate: sStr, endDate: eS
   ]);
 
   // C. New clients: clients whose FIRST non-canceled appointment date falls within the period
-  // Executed in a single efficient query
-  const clientFirstAppts = await prisma.appointment.groupBy({
-    by: ['businessClientId'],
-    where: {
-      businessId,
-      deletedAt: null,
-      status: { not: 'CANCELED' },
-    },
-    _min: { date: true },
-  });
+  // Optimized 2-step candidate queries to avoid full table scan across all history
+  const [currCandidates, prevCandidates] = await Promise.all([
+    prisma.appointment.groupBy({
+      by: ['businessClientId'],
+      where: {
+        businessId,
+        deletedAt: null,
+        status: { not: 'CANCELED' },
+        date: { gte: startDate, lte: endDate },
+      },
+    }),
+    prisma.appointment.groupBy({
+      by: ['businessClientId'],
+      where: {
+        businessId,
+        deletedAt: null,
+        status: { not: 'CANCELED' },
+        date: { gte: prevStartDate, lte: prevEndDate },
+      },
+    }),
+  ]);
 
-  const currNewClients = clientFirstAppts.filter(
-    (g) => g._min.date && g._min.date >= startDate && g._min.date <= endDate
-  ).length;
+  let currNewClients = 0;
+  if (currCandidates.length > 0) {
+    const currCandidateIds = currCandidates.map((c) => c.businessClientId);
+    const currPriors = await prisma.appointment.groupBy({
+      by: ['businessClientId'],
+      where: {
+        businessId,
+        deletedAt: null,
+        status: { not: 'CANCELED' },
+        date: { lt: startDate },
+        businessClientId: { in: currCandidateIds },
+      },
+    });
+    const currPriorSet = new Set(currPriors.map((c) => c.businessClientId));
+    currNewClients = currCandidateIds.filter((id) => !currPriorSet.has(id)).length;
+  }
 
-  const prevNewClients = clientFirstAppts.filter(
-    (g) => g._min.date && g._min.date >= prevStartDate && g._min.date <= prevEndDate
-  ).length;
+  let prevNewClients = 0;
+  if (prevCandidates.length > 0) {
+    const prevCandidateIds = prevCandidates.map((c) => c.businessClientId);
+    const prevPriors = await prisma.appointment.groupBy({
+      by: ['businessClientId'],
+      where: {
+        businessId,
+        deletedAt: null,
+        status: { not: 'CANCELED' },
+        date: { lt: prevStartDate },
+        businessClientId: { in: prevCandidateIds },
+      },
+    });
+    const prevPriorSet = new Set(prevPriors.map((c) => c.businessClientId));
+    prevNewClients = prevCandidateIds.filter((id) => !prevPriorSet.has(id)).length;
+  }
 
   // D. Cancellation rate
   const [currTotal, currCanceled, prevTotal, prevCanceled] = await Promise.all([
@@ -230,14 +274,7 @@ export async function getAppointmentsOverTimeData(businessId, { startDate: sStr,
     throw err;
   }
 
-  const { startDate, endDate } = parseDateRange(sStr, eStr, timezone);
-
-  const diffDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays > 366) {
-    const err = new Error('Date range exceeds maximum allowed limit of 366 days');
-    err.code = 'DATE_RANGE_EXCEEDED';
-    throw err;
-  }
+  const { startDate, endDate } = parseDateRange(sStr, eStr, timezone, 366);
 
   const appointments = await prisma.appointment.findMany({
     where: {
@@ -323,7 +360,7 @@ export async function getTopServicesData(businessId, { startDate: sStr, endDate:
     throw err;
   }
 
-  const { startDate, endDate } = parseDateRange(sStr, eStr, timezone);
+  const { startDate, endDate } = parseDateRange(sStr, eStr, timezone, 366);
 
   // Exclude CANCELED appointments
   const appointmentServices = await prisma.appointmentService.findMany({
@@ -383,7 +420,7 @@ export async function getTopServicesData(businessId, { startDate: sStr, endDate:
  * 4. Employee Analytics
  */
 export async function getEmployeeAnalyticsData(businessId, { startDate: sStr, endDate: eStr, userId, timezone = 'UTC' }) {
-  const { startDate, endDate } = parseDateRange(sStr, eStr, timezone);
+  const { startDate, endDate } = parseDateRange(sStr, eStr, timezone, 366);
 
   // Fetch active employees of the business
   const employees = await prisma.user.findMany({
@@ -408,26 +445,24 @@ export async function getEmployeeAnalyticsData(businessId, { startDate: sStr, en
     }
   }
 
-  // Fetch blocked times for business
-  const blockedTimes = await prisma.blockedTime.findMany({
-    where: {
-      businessId,
-      date: { gte: startDate, lte: endDate },
-    },
-  });
+  const targetUserIds = targetEmployees.map((e) => e.id);
 
-  const results = [];
-
-  for (const emp of targetEmployees) {
-    // A. Assigned appointments (distinct appointments assigned via appointment or appointmentService)
-    const assignedAppointments = await prisma.appointment.findMany({
+  // Batch query blocked times and appointments in range for all target employees
+  const [blockedTimes, allAppointments, allCompletedServices] = await Promise.all([
+    prisma.blockedTime.findMany({
+      where: {
+        businessId,
+        date: { gte: startDate, lte: endDate },
+      },
+    }),
+    prisma.appointment.findMany({
       where: {
         businessId,
         deletedAt: null,
         date: { gte: startDate, lte: endDate },
         OR: [
-          { userId: emp.id },
-          { services: { some: { userId: emp.id } } },
+          { userId: { in: targetUserIds } },
+          { services: { some: { userId: { in: targetUserIds } } } },
         ],
       },
       include: {
@@ -437,17 +472,10 @@ export async function getEmployeeAnalyticsData(businessId, { startDate: sStr, en
           },
         },
       },
-    });
-
-    const assignedCount = assignedAppointments.length;
-    const completedCount = assignedAppointments.filter((a) => a.status === 'COMPLETED').length;
-    const canceledCount = assignedAppointments.filter((a) => a.status === 'CANCELED').length;
-    const cancellationRate = assignedCount > 0 ? Number(((canceledCount / assignedCount) * 100).toFixed(2)) : 0;
-
-    // B. Services performed (completed appointmentServices assigned to employee)
-    const servicesPerformed = await prisma.appointmentService.count({
+    }),
+    prisma.appointmentService.findMany({
       where: {
-        userId: emp.id,
+        userId: { in: targetUserIds },
         appointment: {
           businessId,
           deletedAt: null,
@@ -455,9 +483,29 @@ export async function getEmployeeAnalyticsData(businessId, { startDate: sStr, en
           status: 'COMPLETED',
         },
       },
-    });
+      select: {
+        userId: true,
+      },
+    }),
+  ]);
 
-    // C. Occupied minutes (non-canceled assigned appointments)
+  const results = [];
+
+  for (const emp of targetEmployees) {
+    // Filter assigned appointments for this specific employee
+    const assignedAppointments = allAppointments.filter(
+      (a) => a.userId === emp.id || a.services.some((s) => s.userId === emp.id)
+    );
+
+    const assignedCount = assignedAppointments.length;
+    const completedCount = assignedAppointments.filter((a) => a.status === 'COMPLETED').length;
+    const canceledCount = assignedAppointments.filter((a) => a.status === 'CANCELED').length;
+    const cancellationRate = assignedCount > 0 ? Number(((canceledCount / assignedCount) * 100).toFixed(2)) : 0;
+
+    // Services performed (completed appointmentServices assigned to employee)
+    const servicesPerformed = allCompletedServices.filter((s) => s.userId === emp.id).length;
+
+    // Occupied minutes (non-canceled assigned appointments)
     let occupiedMinutes = 0;
     for (const app of assignedAppointments) {
       if (app.status === 'CANCELED') continue;
@@ -480,7 +528,7 @@ export async function getEmployeeAnalyticsData(businessId, { startDate: sStr, en
       }
     }
 
-    // D. Available working minutes & Occupancy rate
+    // Available working minutes & Occupancy rate
     let availableWorkingMinutes = 0;
     let currDay = DateTime.fromJSDate(startDate).setZone(timezone);
     const endLuxon = DateTime.fromJSDate(endDate).setZone(timezone);

@@ -47,6 +47,13 @@ describe('Analytics Unit & Integration Tests', () => {
       );
     });
 
+    test('parseDateRange throws DATE_RANGE_EXCEEDED when date range exceeds maxDays', () => {
+      assert.throws(
+        () => parseDateRange('2023-01-01', '2025-01-01', 'UTC', 366),
+        (err) => err.code === 'DATE_RANGE_EXCEEDED'
+      );
+    });
+
     test('calculatePreviousPeriod returns period of identical duration', () => {
       const start = new Date('2025-01-01T00:00:00.000Z');
       const end = new Date('2025-01-31T23:59:59.999Z');
@@ -94,8 +101,7 @@ describe('Analytics Unit & Integration Tests', () => {
   });
 
   describe('Overview Analytics (getOverviewData)', () => {
-    test('calculates today appointments, completed, new clients, cancellation rates and previous period comparison in single groupBy query', async () => {
-      let groupByCallCount = 0;
+    test('calculates today appointments, completed, new clients, cancellation rates and previous period comparison with range-scoped candidate queries', async () => {
       const mockPrisma = {
         appointment: {
           count: async ({ where }) => {
@@ -112,12 +118,22 @@ describe('Analytics Unit & Integration Tests', () => {
             return 25;
           },
           groupBy: async ({ where }) => {
-            groupByCallCount++;
-            return [
-              { businessClientId: 'client-1', _min: { date: new Date('2025-01-10T10:00:00Z') } }, // in curr
-              { businessClientId: 'client-2', _min: { date: new Date('2024-12-05T10:00:00Z') } }, // in prev
-              { businessClientId: 'client-3', _min: { date: new Date('2024-10-01T10:00:00Z') } }, // before prev
-            ];
+            // Range candidate query for curr vs prev or prior query
+            if (where.date?.gte && where.date?.lte) {
+              if (where.date.gte.toISOString().startsWith('2025-01-01')) {
+                return [{ businessClientId: 'client-curr-new' }, { businessClientId: 'client-existing' }];
+              } else {
+                return [{ businessClientId: 'client-prev-new' }];
+              }
+            }
+            if (where.date?.lt) {
+              // Prior check: client-existing had prior appointments, client-curr-new did not
+              if (where.businessClientId?.in?.includes('client-existing')) {
+                return [{ businessClientId: 'client-existing' }];
+              }
+              return [];
+            }
+            return [];
           },
         },
       };
@@ -130,7 +146,6 @@ describe('Analytics Unit & Integration Tests', () => {
         timezone: 'UTC',
       });
 
-      assert.equal(groupByCallCount, 1); // Single query optimization verified!
       assert.equal(res.todaysAppointments, 4);
       assert.deepEqual(res.completedAppointments, {
         current: 20,
@@ -139,7 +154,7 @@ describe('Analytics Unit & Integration Tests', () => {
         percentageChange: 100,
       });
       assert.deepEqual(res.newClients, {
-        current: 1,
+        current: 1, // client-curr-new is new, client-existing had prior appointments
         previous: 1,
         change: 0,
         percentageChange: 0,
@@ -283,20 +298,7 @@ describe('Analytics Unit & Integration Tests', () => {
       ];
 
       // Appointment assigned to emp-1 at app level, with service 1 assigned to emp-1 and service 2 assigned to emp-2
-      const mockAppointmentsEmp1 = [
-        {
-          id: 'app-1',
-          userId: 'emp-1',
-          status: 'COMPLETED',
-          durationMin: 60,
-          services: [
-            { userId: 'emp-1', service: { durationMin: 30, cleaningTimeMin: 0 } },
-            { userId: 'emp-2', service: { durationMin: 30, cleaningTimeMin: 0 } },
-          ],
-        },
-      ];
-
-      const mockAppointmentsEmp2 = [
+      const mockAllAppointments = [
         {
           id: 'app-1',
           userId: 'emp-1',
@@ -320,15 +322,10 @@ describe('Analytics Unit & Integration Tests', () => {
           ],
         },
         appointment: {
-          findMany: async ({ where }) => {
-            if (where.OR.some(o => o.userId === 'emp-1' || o.services?.some?.userId === 'emp-1')) {
-              return mockAppointmentsEmp1;
-            }
-            return mockAppointmentsEmp2;
-          },
+          findMany: async () => mockAllAppointments,
         },
         appointmentService: {
-          count: async () => 1,
+          findMany: async () => [{ userId: 'emp-1' }, { userId: 'emp-2' }],
         },
       };
 
@@ -368,7 +365,7 @@ describe('Analytics Unit & Integration Tests', () => {
         user: { findMany: async () => mockEmployees },
         blockedTime: { findMany: async () => [] },
         appointment: { findMany: async () => [] },
-        appointmentService: { count: async () => 0 },
+        appointmentService: { findMany: async () => [] },
       };
 
       setPrismaClientForTesting(mockPrisma);

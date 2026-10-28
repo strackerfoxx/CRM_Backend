@@ -13,7 +13,11 @@ export async function getOverview(req, res) {
 
     return res.status(200).json(overview);
   } catch (error) {
-    if (error.code === 'INVALID_DATES' || error.code === 'INVALID_TIMEZONE') {
+    if (
+      error.code === 'INVALID_DATES' ||
+      error.code === 'INVALID_TIMEZONE' ||
+      error.code === 'DATE_RANGE_EXCEEDED'
+    ) {
       return res.status(400).json({ error: error.message });
     }
     console.error('Error in getOverview controller:', error);
@@ -65,7 +69,8 @@ export async function getTopServices(req, res) {
     if (
       error.code === 'INVALID_DATES' ||
       error.code === 'INVALID_TIMEZONE' ||
-      error.code === 'INVALID_LIMIT'
+      error.code === 'INVALID_LIMIT' ||
+      error.code === 'DATE_RANGE_EXCEEDED'
     ) {
       return res.status(400).json({ error: error.message });
     }
@@ -91,7 +96,8 @@ export async function getEmployeeAnalytics(req, res) {
     if (
       error.code === 'INVALID_DATES' ||
       error.code === 'INVALID_TIMEZONE' ||
-      error.code === 'UNAUTHORIZED_EMPLOYEE'
+      error.code === 'UNAUTHORIZED_EMPLOYEE' ||
+      error.code === 'DATE_RANGE_EXCEEDED'
     ) {
       return res.status(400).json({ error: error.message });
     }
